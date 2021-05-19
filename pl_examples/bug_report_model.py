@@ -33,6 +33,7 @@ class ToyTask(pl.LightningModule):
         if stage == "test":
             return
         self.setup_model_and_optimizer()
+        print("setup called")
 
 
     def setup_model_and_optimizer(self):
@@ -93,15 +94,15 @@ if __name__ == "__main__":
 
     print(model_checkpoint.last_model_path)
 
-    # trainer = pl.Trainer(
-    #     gpus=1,
-    #     precision=16,
-    #     max_epochs=4,
-    #     reload_dataloaders_every_epoch=True,
-    #     limit_train_batches=10,
-    #     limit_val_batches=10,
-    #     limit_test_batches=10,
-    #     callbacks=[model_checkpoint],
-    #     resume_from_checkpoint=model_checkpoint.last_model_path,
-    # )
-    # trainer.fit(task, train_dataloader)
+    trainer = pl.Trainer(
+        gpus=1,
+        precision=16,
+        max_epochs=4,
+        reload_dataloaders_every_epoch=True,
+        limit_train_batches=10,
+        limit_val_batches=10,
+        limit_test_batches=10,
+        callbacks=[model_checkpoint],
+        resume_from_checkpoint=model_checkpoint.last_model_path,
+    )
+    trainer.fit(task, train_dataloader)
