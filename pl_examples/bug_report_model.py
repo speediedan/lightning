@@ -32,7 +32,10 @@ class ToyTask(pl.LightningModule):
     def setup(self, stage: str):
         if stage == "test":
             return
+        self.setup_model_and_optimizer()
 
+
+    def setup_model_and_optimizer(self):
         self.model = ToyModel()
         self.optimizer = AdamW(self.model.parameters(), lr=0.001, betas=[0.9, 0.999], eps=1.0e-08, weight_decay=0,
                                amsgrad=False)
@@ -53,8 +56,8 @@ class ToyTask(pl.LightningModule):
     def configure_optimizers(self):
         return self.optimizer
 
-    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        self.setup("fit")
+    # def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+    #     self.setup_model_and_optimizer()
 
 
 
