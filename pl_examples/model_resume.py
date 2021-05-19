@@ -29,6 +29,6 @@ if __name__ == "__main__":
         limit_val_batches=10,
         limit_test_batches=10,
         callbacks=[model_checkpoint],
-        resume_from_checkpoint=model_checkpoint.last_model_path,
+        resume_from_checkpoint="/home/adrian/repositories/pytorch-lightning/lightning_logs/version_82/checkpoints/last.ckpt",
     )
     trainer.fit(task, train_dataloader)
