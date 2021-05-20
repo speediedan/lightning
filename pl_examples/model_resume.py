@@ -21,7 +21,7 @@ if __name__ == "__main__":
     )
 
     trainer = pl.Trainer(
-        gpus=1,
+        gpus=2,
         precision=16,
         max_epochs=4,
         reload_dataloaders_every_epoch=True,

@@ -78,7 +78,7 @@ if __name__ == "__main__":
     )
 
     trainer = pl.Trainer(
-        gpus=1,
+        gpus=2,
         precision=16,
         max_epochs=3,
         progress_bar_refresh_rate=100,
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     print(model_checkpoint.last_model_path)
 
     trainer = pl.Trainer(
-        gpus=1,
+        gpus=2,
         precision=16,
         max_epochs=4,
         reload_dataloaders_every_epoch=True,
