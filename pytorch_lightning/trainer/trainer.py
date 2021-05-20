@@ -714,7 +714,7 @@ class Trainer(
         self.accelerator.connect(model)
         self.accelerator.setup_environment()
         self._call_setup_hook(model)  # allow user to setup lightning_module in accelerator
-        
+
         self.checkpoint_connector.restore_weights()
 
         self._call_configure_sharded_model(model)  # allow user to setup in model sharded environment
