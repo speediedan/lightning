@@ -57,8 +57,8 @@ class ToyTask(pl.LightningModule):
     def configure_optimizers(self):
         return self.optimizer
 
-    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        self.setup_model_and_optimizer()
+    # def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        # self.setup_model_and_optimizer()
 
 
 
