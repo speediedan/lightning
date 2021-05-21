@@ -326,7 +326,7 @@ class Trainer(
         self.debugging_connector = DebuggingConnector(self)
         self.training_tricks_connector = TrainingTricksConnector(self)
         self.profile_connector = ProfilerConnector(self)
-        self.checkpoint_connector = CheckpointConnector(self)
+        self.checkpoint_connector = CheckpointConnector(self, resume_from_checkpoint)
         self.slurm_connector = SLURMConnector(self)
         self.tuner = Tuner(self)
         self.train_loop = TrainLoop(self, max_epochs, min_epochs, max_steps, min_steps, num_sanity_val_steps)
@@ -350,7 +350,6 @@ class Trainer(
             process_position,
             default_root_dir,
             weights_save_path,
-            resume_from_checkpoint,
             stochastic_weight_avg,
             max_time,
         )
@@ -502,6 +501,10 @@ class Trainer(
 
         model_provided = model is not None
         model = model or self.lightning_module
+        if model is None:
+            raise MisconfigurationException(
+                "`model` must be provided to `trainer.validate()` when it hasn't been passed in a previous run"
+            )
 
         # links data to the trainer
         self.data_connector.attach_data(model, val_dataloaders=val_dataloaders, datamodule=datamodule)
@@ -562,6 +565,10 @@ class Trainer(
 
         model_provided = model is not None
         model = model or self.lightning_module
+        if model is None:
+            raise MisconfigurationException(
+                "`model` must be provided to `trainer.test()` when it hasn't been passed in a previous run"
+            )
 
         # links data to the trainer
         self.data_connector.attach_data(model, test_dataloaders=test_dataloaders, datamodule=datamodule)
@@ -624,6 +631,10 @@ class Trainer(
 
         model_provided = model is not None
         model = model or self.lightning_module
+        if model is None:
+            raise MisconfigurationException(
+                "`model` must be provided to `trainer.predict()` when it hasn't been passed in a previous run"
+            )
 
         # links data to the trainer
         self.data_connector.attach_data(model, predict_dataloaders=dataloaders, datamodule=datamodule)
@@ -1189,19 +1200,19 @@ class Trainer(
         self.teardown(stage=fn)
         model.teardown(stage=fn)
 
-        model._current_fx_name = ""
-        model._current_hook_fx_name = None
+        model._current_fx_name = None
         model._current_dataloader_idx = None
 
-    def _reset_result_and_set_hook_fx_name(self, hook_name: str) -> bool:
+    def _reset_result_and_set_fx_name(self, hook_name: str) -> bool:
         # on_before_zero_grad is called within training_step
+        # TODO(@carmocca): Result should handle this logic
         if "batch_start" in hook_name or hook_name in ("on_before_zero_grad", "on_after_backward"):
             return True
         model_ref = self.lightning_module
         if model_ref is not None:
             # used to track current hook name called
             model_ref._results = Result()
-            model_ref._current_hook_fx_name = hook_name
+            model_ref._current_fx_name = hook_name
         return False
 
     def _cache_logged_metrics(self):
@@ -1217,7 +1228,7 @@ class Trainer(
         # TrainLoop._on_train_epoch_end_hook
 
         # set hook_name to model + reset Result obj
-        skip = self._reset_result_and_set_hook_fx_name(hook_name)
+        skip = self._reset_result_and_set_fx_name(hook_name)
 
         # always profile hooks
         with self.profiler.profile(hook_name):
