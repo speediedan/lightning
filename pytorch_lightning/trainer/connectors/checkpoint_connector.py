@@ -22,9 +22,7 @@ import torch
 import pytorch_lightning
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning.utilities import (
-    _APEX_AVAILABLE,
     _OMEGACONF_AVAILABLE,
-    AMPType,
     DeviceType,
     rank_zero_info,
     rank_zero_warn,
@@ -33,9 +31,6 @@ from pytorch_lightning.utilities.cloud_io import atomic_save, get_filesystem
 from pytorch_lightning.utilities.cloud_io import load as pl_load
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 from pytorch_lightning.utilities.upgrade_checkpoint import KEYS_MAPPING as DEPRECATED_CHECKPOINT_KEYS
-
-if _APEX_AVAILABLE:
-    from apex import amp
 
 if _OMEGACONF_AVAILABLE:
     from omegaconf import Container
@@ -49,7 +44,6 @@ class CheckpointConnector:
 
         # used to validate checkpointing logic
         self.has_trained = False
-        self.resume_checkpoint_path = trainer.resume_from_checkpoint
         self.loaded_checkpoint = dict()
 
     def resume_from_checkpoint(self, path: Union[str, Path], **kwargs):
@@ -129,6 +123,9 @@ class CheckpointConnector:
         """
         Restore model states from a 'PyTorch-Lightning checkpoint' dictionary object
         """
+        if self.trainer.training_type_plugin.plugin_restores_model:
+            return
+
         model = self.trainer.lightning_module
 
         # hook: give user access to checkpoint if needed.
@@ -189,6 +186,9 @@ class CheckpointConnector:
             )
 
     def restore_optimizers_and_schedulers(self, checkpoint: Dict[str, Any]) -> None:
+        if self.trainer.training_type_plugin.plugin_restores_optimizers:
+            return
+
         # validation
         if "optimizer_states" not in checkpoint or "lr_schedulers" not in checkpoint:
             raise KeyError(
@@ -199,6 +199,9 @@ class CheckpointConnector:
         self.restore_lr_schedulers(checkpoint)
 
     def restore_optimizers(self, checkpoint: Dict[str, Any]) -> None:
+        if self.trainer.training_type_plugin.plugin_restores_optimizers:
+            return
+
         # restore the optimizers
         optimizer_states = checkpoint['optimizer_states']
         for optimizer, opt_state in zip(self.trainer.optimizers, optimizer_states):
@@ -213,6 +216,9 @@ class CheckpointConnector:
                             state[k] = v.cuda(self.trainer.root_gpu)
 
     def restore_lr_schedulers(self, checkpoint: Dict[str, Any]) -> None:
+        if self.trainer.training_type_plugin.plugin_restores_optimizers:
+            return
+
         # restore the lr schedulers
         lr_schedulers = checkpoint['lr_schedulers']
         for scheduler, lrs_state in zip(self.trainer.lr_schedulers, lr_schedulers):

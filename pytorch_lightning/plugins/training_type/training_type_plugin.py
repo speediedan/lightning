@@ -137,6 +137,14 @@ class TrainingTypePlugin(Plugin, ABC):
         return self._results
 
     @property
+    def plugin_restores_model(self) -> bool:
+        return False
+
+    @property
+    def plugin_restores_optimizers(self) -> bool:
+        return False
+
+    @property
     def rpc_enabled(self) -> bool:
         return False
 
