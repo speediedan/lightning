@@ -15,7 +15,7 @@
 import os
 import re
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Dict, Any
 
 import torch
 
@@ -147,6 +147,15 @@ class CheckpointConnector:
         # restore callback states
         self.trainer.on_load_checkpoint(checkpoint)
 
+        self.restore_progress(checkpoint)
+
+        if not load_optimizer_states:
+            return
+
+        self.restore_optimizers(checkpoint)
+        self.restore_lr_schedulers(checkpoint)
+
+    def restore_progress(self, checkpoint: Dict[str, Any]) -> None:
         self.trainer.train_loop.global_step = checkpoint['global_step']
         self.trainer.train_loop.current_epoch = checkpoint['epoch']
 
@@ -170,9 +179,7 @@ class CheckpointConnector:
                 " consider using an end of epoch checkpoint."
             )
 
-        if not load_optimizer_states:
-            return
-
+    def restore_optimizers(self, checkpoint: Dict[str, Any]) -> None:
         # restore the optimizers
         optimizer_states = checkpoint['optimizer_states']
         for optimizer, opt_state in zip(self.trainer.optimizers, optimizer_states):
@@ -186,6 +193,7 @@ class CheckpointConnector:
                         if isinstance(v, torch.Tensor):
                             state[k] = v.cuda(self.trainer.root_gpu)
 
+    def restore_lr_schedulers(self, checkpoint: Dict[str, Any]) -> None:
         # restore the lr schedulers
         lr_schedulers = checkpoint['lr_schedulers']
         for scheduler, lrs_state in zip(self.trainer.lr_schedulers, lr_schedulers):
