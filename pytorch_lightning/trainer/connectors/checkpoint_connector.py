@@ -309,7 +309,7 @@ class CheckpointConnector:
             checkpoint['lr_schedulers'] = lr_schedulers
 
             # dump amp scaling
-            self.trainer.precision_plugin.on_save_checkpiont(checkpoint)
+            self.trainer.precision_plugin.on_save_checkpoint(checkpoint)
 
         # dump hyper-parameters
         if model.hparams:
