@@ -141,11 +141,8 @@ class CheckpointConnector:
                 " where `model.ckpt` is your checkpoint file."
             )
 
-        # restore amp scaling
-        if self.trainer.amp_backend == AMPType.NATIVE and 'native_amp_scaling_state' in checkpoint:
-            self.trainer.scaler.load_state_dict(checkpoint['native_amp_scaling_state'])
-        elif self.trainer.amp_backend == AMPType.APEX and 'amp_scaling_state' in checkpoint:
-            amp.load_state_dict(checkpoint['amp_scaling_state'])
+        # restore precision plugin (scaler etc.)
+        self.trainer.precision_plugin.on_load_checkpoint(checkpoint)
 
         # restore callback states
         self.trainer.on_load_checkpoint(checkpoint)
@@ -295,13 +292,7 @@ class CheckpointConnector:
             checkpoint['lr_schedulers'] = lr_schedulers
 
             # dump amp scaling
-            if (
-                self.trainer.amp_backend == AMPType.NATIVE and self.trainer._device_type != DeviceType.TPU
-                and self.trainer.scaler is not None
-            ):
-                checkpoint['native_amp_scaling_state'] = self.trainer.scaler.state_dict()
-            elif self.trainer.amp_backend == AMPType.APEX:
-                checkpoint['amp_scaling_state'] = amp.state_dict()
+            self.trainer.precision_plugin.on_save_checkpiont(checkpoint)
 
         # dump hyper-parameters
         if model.hparams:
