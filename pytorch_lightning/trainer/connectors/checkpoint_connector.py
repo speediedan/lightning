@@ -48,6 +48,11 @@ class CheckpointConnector:
 
         # used to validate checkpointing logic
         self.has_trained = False
+        self.resume_checkpoint_path = trainer.resume_from_checkpoint
+        self.loaded_checkpoint = dict()
+
+    def resume_from_checkpoint(self, path: Union[str, Path], **kwargs):
+        pass
 
     def restore_weights(self) -> None:
         """
