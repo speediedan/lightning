@@ -79,45 +79,54 @@ class CheckpointConnector:
         if self.trainer._device_type == DeviceType.GPU:
             torch.cuda.empty_cache()
 
-    def restore(self, checkpoint_path: str, on_gpu: bool) -> bool:
+    def restore(self, checkpoint_path: str, on_gpu: bool) -> None:
         """
         Load model/training states from a 'PyTorch-Lightning checkpoint' file through file-read and state-restore.
         All restored states are listed in return value description of `dump_checkpoint`.
         """
+
         # Try to read the checkpoint file at `checkpoint_path`. If not exist, do not restore checkpoint.
         fs = get_filesystem(checkpoint_path)
         if not fs.exists(checkpoint_path):
             raise FileNotFoundError(f"Checkpoint at {checkpoint_path} not found. Aborting training.")
 
-        checkpoint, load_optimizer_states = self.trainer.training_type_plugin.restore_model_state_from_ckpt_path(
-            checkpoint_path, map_location=lambda storage, loc: storage
-        )
+        # checkpoint, load_optimizer_states = self.trainer.training_type_plugin.restore_model_state_from_ckpt_path(
+        #     checkpoint_path, map_location=lambda storage, loc: storage
+        # )
+
+        rank_zero_info(f"Restoring states from the checkpoint file at {checkpoint_path}")
+        checkpoint = pl_load(checkpoint_path, map_location=(lambda storage, loc: storage))
 
         model = self.trainer.lightning_module
 
+        # restore datamodule states
+        self.restore_datamodule(checkpoint)
+
+        self.restore_model(checkpoint)
+
+        # TODO: this does not belong here
         if on_gpu:
             model.cuda(self.trainer.root_gpu)
 
         # restore training state
-        self.restore_training_state(checkpoint, load_optimizer_states)
+        self.restore_training_state(checkpoint, load_optimizer_states=True)
 
-        rank_zero_info(f"Restored states from the checkpoint file at {checkpoint_path}")
-        return True
+    def restore_datamodule(self, checkpoint: Dict[str, Any]) -> None:
+        datamodule = self.trainer.datamodule
+        if datamodule is not None:
+            datamodule.on_load_checkpoint(checkpoint)
 
-    def restore_model_state(self, model: LightningModule, checkpoint) -> None:
+    def restore_model(self, checkpoint: Dict[str, Any]) -> None:
         """
         Restore model states from a 'PyTorch-Lightning checkpoint' dictionary object
         """
-
-        # restore datamodule states
-        if self.trainer.datamodule is not None:
-            self.trainer.datamodule.on_load_checkpoint(checkpoint)
+        model = self.trainer.lightning_module
 
         # hook: give user access to checkpoint if needed.
         model.on_load_checkpoint(checkpoint)
 
         # restore model state_dict
-        model.load_state_dict(checkpoint['state_dict'])
+        model.load_state_dict(checkpoint["state_dict"])
 
     def restore_training_state(self, checkpoint, load_optimizer_states: bool = True):
         """
@@ -333,7 +342,8 @@ class CheckpointConnector:
         model = self.trainer.lightning_module
 
         # restore model and datamodule state
-        self.restore_model_state(model, checkpoint)
+        self.restore_datamodule(checkpoint)
+        self.restore_model(checkpoint)
 
         if self.trainer.root_gpu is not None:
             model.cuda(self.trainer.root_gpu)
