@@ -108,6 +108,9 @@ class CheckpointConnector:
         if on_gpu:
             model.cuda(self.trainer.root_gpu)
 
+        # restore callback states
+        self.restore_callbacks(checkpoint)
+
         # restore training state
         self.restore_training_state(checkpoint, load_optimizer_states=True)
 
@@ -135,13 +138,17 @@ class CheckpointConnector:
         :param checkpoint:
         :return:
         """
-        # validation
-        if load_optimizer_states and ('optimizer_states' not in checkpoint or 'lr_schedulers' not in checkpoint):
-            raise KeyError(
-                'Trying to restore training state but checkpoint contains only the model.'
-                ' This is probably due to `ModelCheckpoint.save_weights_only` being set to `True`.'
-            )
+        # restore precision plugin (scaler etc.)
+        self.trainer.precision_plugin.on_load_checkpoint(checkpoint)
+        # restore progress (loops etc.)
+        self.restore_progress(checkpoint)
 
+        self.restore_optimizers_and_schedulers(checkpoint)
+        #
+        # if not load_optimizer_states:
+        #     return
+
+    def restore_callbacks(self, checkpoint: Dict[str, Any]) -> None:
         if any([key in checkpoint for key in DEPRECATED_CHECKPOINT_KEYS]):
             raise ValueError(
                 "The checkpoint you're attempting to load follows an"
@@ -149,20 +156,7 @@ class CheckpointConnector:
                 " `python -m pytorch_lightning.utilities.upgrade_checkpoint --file model.ckpt`"
                 " where `model.ckpt` is your checkpoint file."
             )
-
-        # restore precision plugin (scaler etc.)
-        self.trainer.precision_plugin.on_load_checkpoint(checkpoint)
-
-        # restore callback states
         self.trainer.on_load_checkpoint(checkpoint)
-
-        self.restore_progress(checkpoint)
-
-        if not load_optimizer_states:
-            return
-
-        self.restore_optimizers(checkpoint)
-        self.restore_lr_schedulers(checkpoint)
 
     def restore_progress(self, checkpoint: Dict[str, Any]) -> None:
         self.trainer.train_loop.global_step = checkpoint['global_step']
@@ -187,6 +181,16 @@ class CheckpointConnector:
                 " This can cause unreliable results if further training is done,"
                 " consider using an end of epoch checkpoint."
             )
+
+    def restore_optimizers_and_schedulers(self, checkpoint: Dict[str, Any]) -> None:
+        # validation
+        if "optimizer_states" not in checkpoint or "lr_schedulers" not in checkpoint:
+            raise KeyError(
+                "Trying to restore training state but checkpoint contains only the model."
+                " This is probably due to `ModelCheckpoint.save_weights_only` being set to `True`."
+            )
+        self.restore_optimizers(checkpoint)
+        self.restore_lr_schedulers(checkpoint)
 
     def restore_optimizers(self, checkpoint: Dict[str, Any]) -> None:
         # restore the optimizers
