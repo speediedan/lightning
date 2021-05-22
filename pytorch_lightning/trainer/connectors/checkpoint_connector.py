@@ -105,6 +105,9 @@ class CheckpointConnector:
         #     checkpoint_path, map_location=lambda storage, loc: storage
         # )
 
+        self.resume_checkpoint_path = checkpoint_path
+        self.resume_start()
+
         # restore datamodule states
         self.restore_datamodule()
 
@@ -115,6 +118,8 @@ class CheckpointConnector:
 
         # restore training state
         self.restore_training_state()
+
+        self.resume_end()
 
     def restore_datamodule(self) -> None:
         datamodule = self.trainer.datamodule
