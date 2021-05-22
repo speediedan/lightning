@@ -106,15 +106,15 @@ class CheckpointConnector:
         # )
 
         # restore datamodule states
-        # self.restore_datamodule(checkpoint)
-        #
-        # self.restore_model(checkpoint, on_gpu)
-        #
-        # # restore callback states
-        # self.restore_callbacks(checkpoint)
-        #
-        # # restore training state
-        # self.restore_training_state(checkpoint, load_optimizer_states=True)
+        self.restore_datamodule()
+
+        self.restore_model()
+
+        # restore callback states
+        self.restore_callbacks()
+
+        # restore training state
+        self.restore_training_state()
 
     def restore_datamodule(self) -> None:
         datamodule = self.trainer.datamodule
