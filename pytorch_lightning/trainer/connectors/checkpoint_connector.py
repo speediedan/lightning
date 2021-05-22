@@ -49,8 +49,10 @@ class CheckpointConnector:
     def resume_from_checkpoint(self, path: Union[str, Path], **kwargs):
         pass
 
-    def resume_start(self):
+    def resume_start(self) -> None:
         checkpoint_path = self.resume_checkpoint_path
+        if not checkpoint_path:
+            return
 
         # Try to read the checkpoint file at `checkpoint_path`. If not exist, do not restore checkpoint.
         fs = get_filesystem(checkpoint_path)
@@ -60,7 +62,7 @@ class CheckpointConnector:
         rank_zero_info(f"Restoring states from the checkpoint file at {checkpoint_path}")
         self.loaded_checkpoint = pl_load(checkpoint_path, map_location=(lambda storage, loc: storage))
 
-    def resume_end(self):
+    def resume_end(self) -> None:
         """ Signal the connector that all states have resumed and memory for the checkpoint object can be released. """
         self.loaded_checkpoint = dict()
 
