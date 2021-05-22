@@ -48,56 +48,56 @@ Related issues:
 https://github.com/PyTorchLightning/pytorch-lightning/issues/7535#issuecomment-842508795
 
 
-```python 
+```python
 
 class ToyTask(pl.LightningModule):
     def __init__(self):
         super().__init__()
         self.loss_fn = nn.MSELoss()
-        
-        
+
+
         # hidden
         self.optimizers
         self.schedulers
-        
+
         # method overwrite or property??
         model.optimizers = [...]
-        
+
         # user
         self.optimizers = ..
-    
+
     def setup(self, stage: str):
         if stage == "test":
             return
-    
+
         self.model = ToyModel()
         self.optimizer = AdamW(self.model.parameters(), lr=0.001, betas=[0.9, 0.999], eps=1.0e-08, weight_decay=0, amsgrad=False)
 
     def forward(self, x):
         return self.model(x)
-        
+
     def training_step(self, batch, batch_idx):
         targets = self.forward(batch["model_input"])
-        loss = self.loss_fn(targets, batch["label"]) 
+        loss = self.loss_fn(targets, batch["label"])
 
         # Log loss results per train step and per epoch
         self.log("loss", loss)
 
         # Tell Lightning to minimize loss
-        
+
         opt = self.optimizers() -> now: trainer.accleerator.optimizers
-        
+
         return loss
-            
+
     def configure_optimizers(self):
         return Adam()
         return self.optimizer
-    
+
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         self.setup("fit")
         self.trainer.accelerator.setup(trainer, self)
-    
-    
+
+
 # method overwrite
 model.optimizers = [...]
 

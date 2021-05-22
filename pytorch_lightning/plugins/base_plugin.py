@@ -13,7 +13,7 @@
 # limitations under the License.
 import contextlib
 from abc import ABC
-from typing import Generator, Dict, Any
+from typing import Any, Dict, Generator
 
 import pytorch_lightning as pl
 
