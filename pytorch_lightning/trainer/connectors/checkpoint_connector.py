@@ -47,7 +47,8 @@ class CheckpointConnector:
         self.loaded_checkpoint = dict()
 
     def resume_from_checkpoint(self, path: Union[str, Path], **kwargs):
-        pass
+        self.resume_checkpoint_path = path
+        # TODO: decide what to resume
 
     def resume_start(self) -> None:
         checkpoint_path = self.resume_checkpoint_path
