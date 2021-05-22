@@ -448,6 +448,10 @@ class Trainer(
             model, train_dataloader=train_dataloader, val_dataloaders=val_dataloaders, datamodule=datamodule
         )
 
+        # TODO: so early, will it be ok with SpawnPlugin/TPU?
+        self.checkpoint_connector.resume_start()
+        self.checkpoint_connector.restore_datamodule()
+
         self._run(model)
 
         assert self.state.stopped
@@ -726,10 +730,18 @@ class Trainer(
         self.accelerator.setup_environment()
         self._call_setup_hook(model)  # allow user to setup lightning_module in accelerator
 
-        # self.checkpoint_connector.restore_weights()
+        # for facebook:
+        self.checkpoint_connector.restore_model()
+
+        # restore callback states
+        self.checkpoint_connector.restore_callbacks()
 
         self._call_configure_sharded_model(model)  # allow user to setup in model sharded environment
         self.accelerator.setup(self, model)  # note: this sets up self.lightning_module
+
+        # restore optimizers, etc.
+        # TODO: split up even further
+        self.checkpoint_connector.restore_training_state()
 
         # ----------------------------
         # INSPECT THE CORE LOOPS
@@ -844,7 +856,7 @@ class Trainer(
             ref_model.summarize(mode=self.weights_summary)
 
         # restore training and model before hpc is called
-        self.checkpoint_connector.restore_weights()
+        # self.checkpoint_connector.restore_weights()
 
         # on pretrain routine end
         self.on_pretrain_routine_end()
