@@ -372,14 +372,14 @@ class CheckpointConnector:
         model = self.trainer.lightning_module
 
         # restore model and datamodule state
-        self.restore_datamodule(self.loaded_checkpoint)
-        self.restore_model(self.loaded_checkpoint)
+        self.restore_datamodule()
+        self.restore_model()
 
         if self.trainer.root_gpu is not None:
             model.cuda(self.trainer.root_gpu)
 
         # restore training state
-        self.restore_training_state(self.loaded_checkpoint)
+        self.restore_training_state()
 
         # call hpc specific hook
         model.on_hpc_load(self.loaded_checkpoint)
