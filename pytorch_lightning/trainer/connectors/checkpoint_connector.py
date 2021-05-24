@@ -53,7 +53,14 @@ class CheckpointConnector:
         # TODO: decide what to resume
 
     def resume_start(self) -> None:
-        self.resume_checkpoint_path = self.resume_checkpoint_path or self.hpc_resume_path
+        """
+        Attempt to restore a checkpoint in this priority:
+
+        1. from HPC weights if found
+        2. from `resume_from_checkpoint` file if provided
+        3. don't restore
+        """
+        self.resume_checkpoint_path = self.hpc_resume_path or self.resume_checkpoint_path
         checkpoint_path = self.resume_checkpoint_path
         if not checkpoint_path:
             return
