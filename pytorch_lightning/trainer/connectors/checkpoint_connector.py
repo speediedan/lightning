@@ -90,6 +90,10 @@ class CheckpointConnector:
         # wait for all to catch up
         self.trainer.training_type_plugin.barrier("CheckpointConnector.resume_end")
 
+    def hpc_load(self, checkpoint_path: str, on_gpu: bool):
+        # TODO: unused?
+        self.restore(checkpoint_path)
+
     def restore(self, checkpoint_path: str) -> None:
         """
         Restore everything at once.
