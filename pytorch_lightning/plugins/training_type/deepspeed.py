@@ -234,6 +234,14 @@ class DeepSpeedPlugin(DDPPlugin):
         self.hysteresis = hysteresis
         self.min_loss_scale = min_loss_scale
 
+    @property
+    def plugin_restores_model(self) -> bool:
+        return not self.save_full_weights and self.world_size > 1
+
+    @property
+    def plugin_restores_optimizers(self) -> bool:
+        return self.plugin_restores_model
+
     def _load_config(self, config):
         if config is None and self.DEEPSPEED_ENV_VAR in os.environ:
             rank_zero_info(f"Loading DeepSpeed config from set {self.DEEPSPEED_ENV_VAR} environment variable")
@@ -247,9 +255,13 @@ class DeepSpeedPlugin(DDPPlugin):
                 config = json.load(f)
         return config
 
-    def pre_dispatch(self):
+    def pre_dispatch(self) -> None:
         self.init_deepspeed()
         self.barrier()
+
+        ckpt_path = self.lightning_module.trainer.checkpoint_connector.resume_checkpoint_path
+        if self.plugin_restores_model and ckpt_path is not None:
+            self.restore_model_state_from_ckpt_path(ckpt_path)
 
     def init_deepspeed(self):
         if not self._config_initialized:
@@ -524,37 +536,26 @@ class DeepSpeedPlugin(DDPPlugin):
         else:
             super().save_checkpoint(checkpoint, filepath)
 
-    def restore_model_state_from_ckpt_path(
-        self,
-        ckpt_path: str,
-        map_location: Callable = lambda storage, loc: storage,
-    ) -> Tuple[Dict, bool]:
-        if not self.save_full_weights and self.world_size > 1:
-            # Rely on deepspeed to load the checkpoint and necessary information
-            from pytorch_lightning.trainer.states import TrainerFn
-            is_fitting = self.lightning_module.trainer.state.fn == TrainerFn.FITTING
-            save_dir = self._filepath_to_dir(ckpt_path)
+    def restore_model_state_from_ckpt_path(self, ckpt_path: str) -> None:
+        # Rely on deepspeed to load the checkpoint and necessary information
+        from pytorch_lightning.trainer.states import TrainerFn
+        is_fitting = self.lightning_module.trainer.state.fn == TrainerFn.FITTING
+        save_dir = self._filepath_to_dir(ckpt_path)
 
-            if self.zero_stage_3:
-                # TODO: Currently required as this call is missing within the deepspeed engine.
-                self.deepspeed_engine.optimizer._partition_all_parameters()
+        if self.zero_stage_3:
+            # TODO: Currently required as this call is missing within the deepspeed engine.
+            self.deepspeed_engine.optimizer._partition_all_parameters()
 
-            _, client_state = self.deepspeed_engine.load_checkpoint(
-                save_dir, load_optimizer_states=is_fitting, load_lr_scheduler_states=is_fitting
-            )
+        _, client_state = self.deepspeed_engine.load_checkpoint(
+            save_dir, load_optimizer_states=is_fitting, load_lr_scheduler_states=is_fitting
+        )
 
-            # restore datamodule states
-            if self.lightning_module.trainer.datamodule is not None:
-                self.lightning_module.trainer.datamodule.on_load_checkpoint(client_state)
+        # restore datamodule states
+        if self.lightning_module.trainer.datamodule is not None:
+            self.lightning_module.trainer.datamodule.on_load_checkpoint(client_state)
 
-            # hook: give user access to checkpoint if needed.
-            self.lightning_module.on_load_checkpoint(client_state)
-            return client_state, False
-
-        # Broadcast to ensure we load from the rank 0 checkpoint
-        # This doesn't have to be the case when using deepspeed sharded checkpointing
-        ckpt_path = self.broadcast(ckpt_path)
-        return super().restore_model_state_from_ckpt_path(ckpt_path, map_location=map_location)
+        # hook: give user access to checkpoint if needed.
+        self.lightning_module.on_load_checkpoint(client_state)
 
     def update_global_step(self, total_batch_idx: int, current_global_step: int) -> int:
         if self._original_accumulate_grad_batches is None:

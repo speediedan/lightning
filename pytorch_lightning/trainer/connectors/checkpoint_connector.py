@@ -49,6 +49,9 @@ class CheckpointConnector:
             return f"{dir_path_hpc}/hpc_ckpt_{max_suffix}.ckpt"
 
     def resume_from_checkpoint(self, path: Union[str, Path], **kwargs):
+        """
+        Signals the Trainer to resume from the given path the next time Trainer.fit/validate/test/predict is called.
+        """
         self.resume_checkpoint_path = path
         # TODO: decide what to resume
 
