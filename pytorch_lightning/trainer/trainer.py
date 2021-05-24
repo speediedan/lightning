@@ -448,9 +448,7 @@ class Trainer(
             model, train_dataloader=train_dataloader, val_dataloaders=val_dataloaders, datamodule=datamodule
         )
 
-        # TODO: so early, will it be ok with SpawnPlugin/TPU?
         self.checkpoint_connector.resume_start()
-        self.checkpoint_connector.restore_datamodule()
 
         self._run(model)
 
@@ -730,9 +728,9 @@ class Trainer(
         self.accelerator.setup_environment()
         self._call_setup_hook(model)  # allow user to setup lightning_module in accelerator
 
-        # for facebook:
+        # restore modules after setup
+        self.checkpoint_connector.restore_datamodule()
         self.checkpoint_connector.restore_model()
-
         # restore callback states
         self.checkpoint_connector.restore_callbacks()
 
