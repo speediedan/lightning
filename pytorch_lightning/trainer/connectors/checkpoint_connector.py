@@ -46,6 +46,7 @@ class CheckpointConnector:
         # TODO: decide what to resume
 
     def resume_start(self) -> None:
+        self.resume_checkpoint_path = self.resume_checkpoint_path or self.hpc_resume_path
         checkpoint_path = self.resume_checkpoint_path
         if not checkpoint_path:
             return
@@ -64,41 +65,28 @@ class CheckpointConnector:
 
     def resume_end(self) -> None:
         """ Signal the connector that all states have resumed and memory for the checkpoint object can be released. """
+        rank_zero_info(f"Restored all states from the checkpoint file at {self.resume_checkpoint_path}")
         self.resume_checkpoint_path = None
         self.loaded_checkpoint = dict()
-
-    def restore_weights(self) -> None:
-        """
-        Attempt to restore a checkpoint (e.g. weights) in this priority:
-        1. from HPC weights
-        2. from `resume_from_checkpoint` file
-        3. don't restore
-        """
-        # clear cache before restore
-        if self.trainer._device_type == DeviceType.GPU:
-            torch.cuda.empty_cache()
-
-        # 1. Attempt to restore states from HPC checkpoint
-        dir_path_hpc = str(self.trainer.weights_save_path)
-        max_suffix = self.max_ckpt_in_folder(dir_path_hpc, "hpc_ckpt_")
-        if max_suffix is not None:
-            checkpoint_path = f'{dir_path_hpc}/hpc_ckpt_{max_suffix}.ckpt'
-            self.hpc_load(checkpoint_path, self.trainer._device_type == DeviceType.GPU)
-            rank_zero_info(f'restored hpc model from: {checkpoint_path}')
-
-        # 2. Attempt to restore states from `resume_from_checkpoint` file
-        elif self.resume_checkpoint_path is not None:
-            self.restore(self.resume_checkpoint_path)
-
-        # wait for all to catch up
-        self.trainer.training_type_plugin.barrier('TrainerIOMixin.restore_weights')
 
         # clear cache after restore
         if self.trainer._device_type == DeviceType.GPU:
             torch.cuda.empty_cache()
 
+        # wait for all to catch up
+        self.trainer.training_type_plugin.barrier("CheckpointConnector.resume_end")
+
+    @property
+    def hpc_resume_path(self) -> Optional[str]:
+        dir_path_hpc = str(self.trainer.weights_save_path)
+        max_suffix = self.max_ckpt_in_folder(dir_path_hpc, "hpc_ckpt_")
+        if max_suffix is not None:
+            return f"{dir_path_hpc}/hpc_ckpt_{max_suffix}.ckpt"
+
     def restore(self, checkpoint_path: str) -> None:
         """
+        Restore everything at once.
+
         Load model/training states from a 'PyTorch-Lightning checkpoint' file through file-read and state-restore.
         All restored states are listed in return value description of `dump_checkpoint`.
         """
@@ -138,6 +126,10 @@ class CheckpointConnector:
 
         # hook: give user access to checkpoint if needed.
         model.on_load_checkpoint(self.loaded_checkpoint)
+
+        # call hpc specific hook
+        if self.hpc_resume_path is not None:
+            self.trainer.lightning_module.on_hpc_load(self.loaded_checkpoint)
 
         # restore model state_dict
         model.load_state_dict(self.loaded_checkpoint["state_dict"])
@@ -364,31 +356,6 @@ class CheckpointConnector:
             self.trainer.datamodule.on_save_checkpoint(checkpoint)
 
         return checkpoint
-
-    def hpc_load(self, checkpoint_path: str, on_gpu: bool):
-        """
-        Load model/training states from a 'PyTorch-Lightning checkpoint' file for hpc.
-        All restored states are listed in return value description of `dump_checkpoint`.
-        """
-
-        # read a checkpoint dictionary object from the 'PyTorch-Lightning checkpoint' file at `checkpoint_path`
-        checkpoint = pl_load(checkpoint_path, map_location=lambda storage, loc: storage)
-
-        # acquire the model
-        model = self.trainer.lightning_module
-
-        # restore model and datamodule state
-        self.restore_datamodule()
-        self.restore_model()
-
-        if self.trainer.root_gpu is not None:
-            model.cuda(self.trainer.root_gpu)
-
-        # restore training state
-        self.restore_training_state()
-
-        # call hpc specific hook
-        model.on_hpc_load(self.loaded_checkpoint)
 
     def max_ckpt_in_folder(self, dir_path: Union[str, Path], name_key: str = 'ckpt_') -> Optional[int]:
         """List up files in `dir_path` with `name_key`, then yield maximum suffix number.
