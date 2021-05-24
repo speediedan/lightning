@@ -50,6 +50,10 @@ class CheckpointConnector:
         if not checkpoint_path:
             return
 
+        # clear cache before restore
+        if self.trainer._device_type == DeviceType.GPU:
+            torch.cuda.empty_cache()
+
         # Try to read the checkpoint file at `checkpoint_path`. If not exist, do not restore checkpoint.
         fs = get_filesystem(checkpoint_path)
         if not fs.exists(checkpoint_path):
