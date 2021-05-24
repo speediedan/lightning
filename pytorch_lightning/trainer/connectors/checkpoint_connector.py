@@ -41,6 +41,13 @@ class CheckpointConnector:
         self.has_trained = False
         self.loaded_checkpoint = dict()
 
+    @property
+    def hpc_resume_path(self) -> Optional[str]:
+        dir_path_hpc = str(self.trainer.weights_save_path)
+        max_suffix = self.max_ckpt_in_folder(dir_path_hpc, "hpc_ckpt_")
+        if max_suffix is not None:
+            return f"{dir_path_hpc}/hpc_ckpt_{max_suffix}.ckpt"
+
     def resume_from_checkpoint(self, path: Union[str, Path], **kwargs):
         self.resume_checkpoint_path = path
         # TODO: decide what to resume
@@ -76,13 +83,6 @@ class CheckpointConnector:
         # wait for all to catch up
         self.trainer.training_type_plugin.barrier("CheckpointConnector.resume_end")
 
-    @property
-    def hpc_resume_path(self) -> Optional[str]:
-        dir_path_hpc = str(self.trainer.weights_save_path)
-        max_suffix = self.max_ckpt_in_folder(dir_path_hpc, "hpc_ckpt_")
-        if max_suffix is not None:
-            return f"{dir_path_hpc}/hpc_ckpt_{max_suffix}.ckpt"
-
     def restore(self, checkpoint_path: str) -> None:
         """
         Restore everything at once.
@@ -97,9 +97,8 @@ class CheckpointConnector:
         self.resume_checkpoint_path = checkpoint_path
         self.resume_start()
 
-        # restore datamodule states
+        # restore module states
         self.restore_datamodule()
-
         self.restore_model()
 
         # restore callback states
@@ -107,7 +106,6 @@ class CheckpointConnector:
 
         # restore training state
         self.restore_training_state()
-
         self.resume_end()
 
     def restore_datamodule(self) -> None:
