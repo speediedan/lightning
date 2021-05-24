@@ -153,9 +153,6 @@ class CheckpointConnector:
         self.restore_progress()
 
         self.restore_optimizers_and_schedulers()
-        #
-        # if not load_optimizer_states:
-        #     return
 
     def restore_callbacks(self) -> None:
         if not self.loaded_checkpoint:
