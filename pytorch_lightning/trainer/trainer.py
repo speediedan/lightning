@@ -855,8 +855,7 @@ class Trainer(
         if self.is_global_zero and self.weights_summary is not None and not self.testing:
             ref_model.summarize(mode=self.weights_summary)
 
-        # restore training and model before hpc is called
-        # self.checkpoint_connector.restore_weights()
+        self.checkpoint_connector.resume_end()
 
         # on pretrain routine end
         self.on_pretrain_routine_end()
