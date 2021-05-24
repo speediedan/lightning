@@ -60,6 +60,7 @@ class CheckpointConnector:
 
     def resume_end(self) -> None:
         """ Signal the connector that all states have resumed and memory for the checkpoint object can be released. """
+        self.resume_checkpoint_path = None
         self.loaded_checkpoint = dict()
 
     def restore_weights(self) -> None:
