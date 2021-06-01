@@ -290,3 +290,8 @@ class TrainingTypePlugin(Plugin, ABC):
     @classmethod
     def register_plugins(cls, plugin_registry):
         pass
+
+    @property
+    def should_rank_save_checkpoint(self) -> bool:
+        """Returns whether the checkpoint should be saved (rank based)"""
+        return self.is_global_zero
