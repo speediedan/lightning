@@ -85,6 +85,7 @@ PyTorch Lightning
    advanced/training_tricks
    advanced/pruning_quantization
    advanced/transfer_learning
+   advanced/finetuning_scheduler
    advanced/tpu
    common/test_set
 
