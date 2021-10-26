@@ -482,7 +482,8 @@ class Trainer(
         # Needed because of LightningOptimizer
         self._lightning_optimizers = None
 
-        # .validate() and .test() set this when they load a checkpoint
+        # .fit(), .validate() and .test() set this when they load a checkpoint
+        self.fit_ckpt_path: Optional[str] = None
         self.validated_ckpt_path: Optional[str] = None
         self.tested_ckpt_path: Optional[str] = None
         self.predicted_ckpt_path: Optional[str] = None
@@ -763,7 +764,10 @@ class Trainer(
 
         # TODO: ckpt_path only in v1.7
         ckpt_path = ckpt_path or self.resume_from_checkpoint
-        results = self._run(model, ckpt_path=ckpt_path)
+	self.fit_ckpt_path = self.__set_ckpt_path(
+            ckpt_path, model_provided=model, model_connected=self.lightning_module is not None
+        )
+        results = self._run(model, ckpt_path=self.fit_ckpt_path)
 
         assert self.state.stopped
         self.training = False
