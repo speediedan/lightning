@@ -87,6 +87,7 @@ PyTorch Lightning
    advanced/training_tricks
    advanced/pruning_quantization
    advanced/transfer_learning
+   advanced/finetuning_scheduler
    common/test_set
 
 .. toctree::
