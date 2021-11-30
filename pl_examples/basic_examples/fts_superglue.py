@@ -154,9 +154,10 @@ class RteBoolqModule(pl.LightningModule):
         self.log_dict(metric_dict, prog_bar=True, sync_dist=True)
 
     def init_pgs(self) -> List[Dict]:
-        """Initialize the parameter groups, necessary only for the baseline 'nofts_baseline.yaml' configuration
-        that doesn't use the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler`
-        callback.
+        """Initialize the parameter groups. Used to ensure weight_decay is not applied
+        to our specified bias parameters when we initialize the optimizer and for the baseline 'nofts_baseline.yaml'
+        configuration that doesn't use the
+        :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` callback.
 
         Returns:
             List[Dict]: A list of parameter group dictionaries.
@@ -182,6 +183,11 @@ class RteBoolqModule(pl.LightningModule):
         return pgs
 
     def configure_optimizers(self):
+        # the phase 0 parameters will have been set to require gradients during setup
+        # you can initialize the optimizer with a simple requires.grad filter as is often done,
+        # but in this case we pass a list of parameter groups to ensure weight_decay is
+        # not applied to the bias parameter (for completeness, in this case it won't make much
+        # performance difference)
         optimizer = instantiate_class(self.init_pgs(), self.optimizer_init)
         scheduler = {"scheduler": instantiate_class(optimizer, self.lr_scheduler_init), **self.pl_lrs_cfg}
         return [optimizer], [scheduler]
@@ -220,7 +226,7 @@ class RteBoolqDataModule(pl.LightningDataModule):
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
         pin_memory: bool = False,
-        tokenizers_parallelism: str = "true",
+        tokenizers_parallelism: bool = True,
         num_workers: int = 0,
     ):
         super().__init__()
@@ -233,7 +239,7 @@ class RteBoolqDataModule(pl.LightningDataModule):
         self.dataloader_kwargs = {"num_workers": num_workers, "pin_memory": pin_memory}
         self.text_fields = self.task_text_field_map[self.task_name]
         self.num_labels = TASK_NUM_LABELS[self.task_name]
-        os.environ["TOKENIZERS_PARALLELISM"] = self.tokenizers_parallelism
+        os.environ["TOKENIZERS_PARALLELISM"] = "true" if self.tokenizers_parallelism else "false"
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True, local_files_only=False)
         if prep_on_init:  # useful if one wants to load datasets as soon as the `LightningDataModule` is instantiated
             self.prepare_data()

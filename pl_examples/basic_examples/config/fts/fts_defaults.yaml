@@ -7,13 +7,14 @@ data:
     prep_on_init: false
     num_workers: 0
     pin_memory: false
-    tokenizers_parallelism: 'false'
+    tokenizers_parallelism: false
     max_seq_length: 128
     train_batch_size: 32
     eval_batch_size: 32
 model:
   class_path: pl_examples.basic_examples.fts_superglue.RteBoolqModule
   init_args:
+    model_name_or_path: albert-base-v2
     optimizer_init:
       class_path: torch.optim.AdamW
       init_args:
@@ -25,7 +26,7 @@ model:
       init_args:
         T_0: 1
         T_mult: 2
-        eta_min: 0
+        eta_min: 1.0e-07
     pl_lrs_cfg:
       interval: epoch
       frequency: 1
