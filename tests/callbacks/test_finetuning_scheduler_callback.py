@@ -519,7 +519,7 @@ def test_finetuningscheduling_epoch_trans_only(tmpdir, boring_ft_schedule, epoch
             trainer.fit(model)
 
 
-@RunIf(special=True, min_gpus=2)
+@RunIf(standalone=True, min_gpus=2)
 def test_fts_multi_dp(tmpdir):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` functions properly
     in a supported 'dp' distributed context."""
@@ -534,7 +534,7 @@ def test_fts_multi_dp(tmpdir):
     assert finetuningscheduler_callback.curr_depth == finetuningscheduler_callback.max_depth
 
 
-@RunIf(special=True, min_gpus=2)
+@RunIf(standalone=True, min_gpus=2)
 def test_fts_multi_ddp(tmpdir):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` functions properly
     in a supported 'ddp' distributed context."""
@@ -549,7 +549,7 @@ def test_fts_multi_ddp(tmpdir):
     assert finetuningscheduler_callback.curr_depth == finetuningscheduler_callback.max_depth
 
 
-@RunIf(special=True, min_gpus=2)
+@RunIf(standalone=True, min_gpus=2)
 def test_fts_multi_ddp_sharded(tmpdir):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` functions properly
     in a supported 'ddp_sharded' distributed context."""
@@ -564,7 +564,7 @@ def test_fts_multi_ddp_sharded(tmpdir):
     assert finetuningscheduler_callback.curr_depth == finetuningscheduler_callback.max_depth
 
 
-@RunIf(special=True, min_gpus=2)
+@RunIf(standalone=True, min_gpus=2)
 def test_fts_multi_ddp_spawn(tmpdir):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` functions properly
     in a supported 'ddp_spawn' distributed context."""
@@ -576,7 +576,7 @@ def test_fts_multi_ddp_spawn(tmpdir):
     assert trainer.callback_metrics["val_loss"] < 0.1
 
 
-@RunIf(special=True, min_gpus=2)
+@RunIf(standalone=True, min_gpus=2)
 def test_fts_multi_ddp_sharded_spawn(tmpdir):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` functions properly
     in a supported 'ddp_sharded_spawn' distributed context."""

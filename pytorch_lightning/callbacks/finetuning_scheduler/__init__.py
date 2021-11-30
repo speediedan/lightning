@@ -18,7 +18,7 @@ Finetuning Scheduler
 Package used to implement multi-phase finetuned training schedules
 
 """
-from pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters import (  # noqa: F401 # isort: skip
+from pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters import (  # isort: skip
     FTSState,
     FTSCheckpoint,
     FTSEarlyStopping,
@@ -26,4 +26,14 @@ from pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters import (  #
     CallbackDepMixin,
     CallbackResolverMixin,
 )
-from pytorch_lightning.callbacks.finetuning_scheduler.fts import FinetuningScheduler  # noqa: F401
+from pytorch_lightning.callbacks.finetuning_scheduler.fts import FinetuningScheduler
+
+__all__ = [
+    "FTSState",
+    "FTSCheckpoint",
+    "FTSEarlyStopping",
+    "SchedulingMixin",
+    "CallbackDepMixin",
+    "CallbackResolverMixin",
+    "FinetuningScheduler",
+]
