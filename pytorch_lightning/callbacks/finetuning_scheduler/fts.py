@@ -287,6 +287,7 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
         """
         if self.gen_ft_sched_only:
             if trainer.is_global_zero:  # can't use @rank_zero_only decorator before accelerator setup
+                trainer.training_type_plugin.broadcast = lambda x: x
                 _ = self.gen_ft_schedule(pl_module, trainer.log_dir)
                 log.info("Bypassing training, generating finetuning schedule for review and subsequent finetuning")
                 raise SystemExit()

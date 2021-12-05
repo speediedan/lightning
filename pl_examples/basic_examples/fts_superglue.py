@@ -131,7 +131,7 @@ class RteBoolqModule(pl.LightningModule):
         loss = torch.stack([x["loss"] for x in outputs]).mean()
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         if self.finetuningscheduler_callback:
-            self.log("finetuning_schedule_depth", self.finetuningscheduler_callback.curr_depth)
+            self.log("finetuning_schedule_depth", float(self.finetuningscheduler_callback.curr_depth))
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         outputs = self(**batch)
@@ -143,26 +143,25 @@ class RteBoolqModule(pl.LightningModule):
             preds = logits.squeeze()
 
         labels = batch["labels"]
+        self.log("val_loss", val_loss, prog_bar=True)
         return {"loss": val_loss, "preds": preds, "labels": labels}
 
     def validation_epoch_end(self, outputs):
         preds = torch.cat([x["preds"] for x in outputs]).detach().cpu().numpy()
         labels = torch.cat([x["labels"] for x in outputs]).detach().cpu().numpy()
-        loss = torch.stack([x["loss"] for x in outputs]).mean()
-        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
+        # loss = torch.stack([x["loss"] for x in outputs]).mean()
+        # self.log("val_loss", loss, prog_bar=True, sync_dist=True)
         metric_dict = self.metric.compute(predictions=preds, references=labels)
         self.log_dict(metric_dict, prog_bar=True, sync_dist=True)
 
-    def init_pgs(self) -> List[Dict]:
-        """Initialize the parameter groups. Used to ensure weight_decay is not applied
-        to our specified bias parameters when we initialize the optimizer and for the baseline 'nofts_baseline.yaml'
-        configuration that doesn't use the
-        :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` callback.
+    def _init_param_groups(self) -> List[Dict]:
+        """Initialize the parameter groups. Used to ensure weight_decay is not applied to our specified bias
+        parameters when we initialize the optimizer.
 
         Returns:
             List[Dict]: A list of parameter group dictionaries.
         """
-        pgs = [
+        return [
             {
                 "params": [
                     p
@@ -180,7 +179,6 @@ class RteBoolqModule(pl.LightningModule):
                 "weight_decay": 0.0,
             },
         ]
-        return pgs
 
     def configure_optimizers(self):
         # the phase 0 parameters will have been set to require gradients during setup
@@ -188,7 +186,7 @@ class RteBoolqModule(pl.LightningModule):
         # but in this case we pass a list of parameter groups to ensure weight_decay is
         # not applied to the bias parameter (for completeness, in this case it won't make much
         # performance difference)
-        optimizer = instantiate_class(self.init_pgs(), self.optimizer_init)
+        optimizer = instantiate_class(self._init_param_groups(), self.optimizer_init)
         scheduler = {"scheduler": instantiate_class(optimizer, self.lr_scheduler_init), **self.pl_lrs_cfg}
         return [optimizer], [scheduler]
 
@@ -203,8 +201,8 @@ class RteBoolqDataModule(pl.LightningDataModule):
     """A :class:`~pytorch_lighting.core.LightningDataModule` for using either the RTE or BoolQ `SuperGLUE Hugging
     Face datasets <https://huggingface.co/datasets/super_glue#data-instances>`_."""
 
-    task_text_field_map = {"rte": ["premise", "hypothesis"], "boolq": ["question", "passage"]}
-    loader_columns = [
+    TASK_TEXT_FIELD_MAP = {"rte": ("premise", "hypothesis"), "boolq": ("question", "passage")}
+    LOADER_COLUMNS = (
         "datasets_idx",
         "input_ids",
         "token_type_ids",
@@ -212,7 +210,7 @@ class RteBoolqDataModule(pl.LightningDataModule):
         "start_positions",
         "end_positions",
         "labels",
-    ]
+    )
     # ignore warnings related tokenizers_parallelism/DataLoader parallelism tradeoff and expected logging behavior
     for warnf in [".*does not have many workers*", ".*The number of training samples.*"]:
         warnings.filterwarnings("ignore", warnf)
@@ -221,13 +219,11 @@ class RteBoolqDataModule(pl.LightningDataModule):
         self,
         model_name_or_path: str,
         task_name: str = DEFAULT_TASK,
-        prep_on_init: bool = False,
         max_seq_length: int = 128,
         train_batch_size: int = 32,
         eval_batch_size: int = 32,
-        pin_memory: bool = False,
         tokenizers_parallelism: bool = True,
-        num_workers: int = 0,
+        **dataloader_kwargs: Any,
     ):
         super().__init__()
         self.model_name_or_path = model_name_or_path
@@ -236,22 +232,22 @@ class RteBoolqDataModule(pl.LightningDataModule):
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.tokenizers_parallelism = tokenizers_parallelism
-        self.dataloader_kwargs = {"num_workers": num_workers, "pin_memory": pin_memory}
-        self.text_fields = self.task_text_field_map[self.task_name]
+        self.dataloader_kwargs = {
+            "num_workers": dataloader_kwargs.get("num_workers", 0),
+            "pin_memory": dataloader_kwargs.get("pin_memory", False),
+        }
+        self.text_fields = self.TASK_TEXT_FIELD_MAP[self.task_name]
         self.num_labels = TASK_NUM_LABELS[self.task_name]
         os.environ["TOKENIZERS_PARALLELISM"] = "true" if self.tokenizers_parallelism else "false"
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True, local_files_only=False)
-        if prep_on_init:  # useful if one wants to load datasets as soon as the `LightningDataModule` is instantiated
-            self.prepare_data()
-            self.setup("fit")
 
     def setup(self, stage):
         self.dataset = datasets.load_dataset("super_glue", self.task_name)
         for split in self.dataset.keys():
             self.dataset[split] = self.dataset[split].map(
-                self.convert_to_features, batched=True, remove_columns=["label"]
+                self._convert_to_features, batched=True, remove_columns=["label"]
             )
-            self.columns = [c for c in self.dataset[split].column_names if c in self.loader_columns]
+            self.columns = [c for c in self.dataset[split].column_names if c in self.LOADER_COLUMNS]
             self.dataset[split].set_format(type="torch", columns=self.columns)
 
         self.eval_splits = [x for x in self.dataset.keys() if "validation" in x]
@@ -281,7 +277,7 @@ class RteBoolqDataModule(pl.LightningDataModule):
                 for x in self.eval_splits
             ]
 
-    def convert_to_features(self, example_batch):
+    def _convert_to_features(self, example_batch):
         text_pairs = list(zip(example_batch[self.text_fields[0]], example_batch[self.text_fields[1]]))
         # Tokenize the text/text pairs
         features = self.tokenizer.batch_encode_plus(
