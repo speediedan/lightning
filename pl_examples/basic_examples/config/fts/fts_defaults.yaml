@@ -4,9 +4,6 @@ data:
   init_args:
     model_name_or_path: albert-base-v2
     task_name: rte
-    prep_on_init: false
-    num_workers: 0
-    pin_memory: false
     tokenizers_parallelism: false
     max_seq_length: 128
     train_batch_size: 32
