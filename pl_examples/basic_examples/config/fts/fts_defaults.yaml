@@ -28,7 +28,7 @@ model:
       frequency: 1
       name: CosineAnnealingWithWarmRestartsLR
 trainer:
-  max_epochs: 100
+  max_epochs: 1000
   gpus: 2
   strategy: ddp_find_unused_parameters_false
   precision: 16

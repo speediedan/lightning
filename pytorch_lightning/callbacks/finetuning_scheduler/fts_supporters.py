@@ -41,6 +41,7 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.utilities import rank_zero_info, rank_zero_only, rank_zero_warn
 from pytorch_lightning.utilities.cloud_io import get_filesystem
+from pytorch_lightning.utilities.distributed import rank_zero_debug
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 
 log = logging.getLogger(__name__)
@@ -760,12 +761,12 @@ class SchedulingMixin(ABC):
             elif p.requires_grad:
                 curr_thawed.append(n)
         if thawed_p_names:
-            rank_zero_info(
+            rank_zero_debug(
                 f"{'Initializing with' if init_thaw else 'Thawed'} the following module parameters: "
                 f"{[n for n in thawed_p_names]}"
             )
         curr_thawed.extend(thawed_p_names)
-        rank_zero_info(f"The following module parameters are currently thawed: {[n for n in curr_thawed]}")
+        rank_zero_debug(f"The following module parameters are currently thawed: {[n for n in curr_thawed]}")
         return thawed_p_names, curr_thawed
 
 
