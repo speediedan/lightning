@@ -34,167 +34,145 @@ configuration files referenced below as desired for other configurations.
 """
 
 import os
+import sys
 import warnings
+from collections import namedtuple
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
+from torch.utils import collect_env
 from torch.utils.data import DataLoader
 
 import pytorch_lightning as pl
 from pl_examples import _HF_AVAILABLE
 from pytorch_lightning.callbacks.finetuning_scheduler.fts import FinetuningScheduler
 from pytorch_lightning.utilities import rank_zero_warn
-from pytorch_lightning.utilities.cli import instantiate_class, LightningCLI
+from pytorch_lightning.utilities.cli import _Registry, CALLBACK_REGISTRY, LightningCLI
+from pytorch_lightning.utilities.exceptions import MisconfigurationException
 
 if _HF_AVAILABLE:
     import datasets
     from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
+    from transformers import logging as transformers_logging
 
 TASK_NUM_LABELS = {"boolq": 2, "rte": 2}
 DEFAULT_TASK = "rte"
+MOCK_REGISTRY = _Registry()
 
 
-class RteBoolqModule(pl.LightningModule):
-    """A :class:`~pytorch_lightning.core.lightning.LightningModule` that can be used to finetune a foundational
-    model on either the RTE or BoolQ `SuperGLUE <https://super.gluebenchmark.com/>`_ tasks using Hugging Face
-    implementations of a given model and the `SuperGLUE Hugging Face dataset.
+def instantiate_registered_class(init: Dict[str, Any], args: Optional[Union[Any, Tuple[Any, ...]]] = None) -> Any:
+    """Instantiates a class with the given args and init. Accepts class definitions in the form of a "class_path"
+    or "callback_key" associated with a _Registry.
 
-    <https://huggingface.co/datasets/super_glue#data-instances>`_.
+    Args:
+        init: Dict of the form {"class_path":... or "callback_key":..., "init_args":...}.
+        args: Positional arguments required for instantiation.
+
+    Returns:
+        The instantiated class object.
     """
+    class_module, class_name, args_class = None, None, None
+    shortcircuit_local = False
+    kwargs = init.get("init_args", {})
+    class_path = init.get("class_path", None)
+    if args and not isinstance(args, tuple):
+        args = (args,)
+    if class_path:
+        shortcircuit_local = False if "." in class_path else True
+        if not shortcircuit_local:
+            class_module, class_name = init["class_path"].rsplit(".", 1)
+        else:  # class is expected to be locally defined
+            args_class = globals()[init["class_path"]]
+    elif init.get("callback_key", None):
+        callback_path = CALLBACK_REGISTRY.get(init["callback_key"], None) or MOCK_REGISTRY.get(
+            init["callback_key"], None
+        )
+        assert callback_path, MisconfigurationException(
+            f'specified callback_key {init["callback_key"]} has not been registered'
+        )
+        class_module, class_name = callback_path.__module__, callback_path.__name__
+    else:
+        raise MisconfigurationException(
+            "Neither a class_path nor callback_key were included in a configuration that" "requires one"
+        )
+    if not shortcircuit_local:
+        module = __import__(class_module, fromlist=[class_name])
+        args_class = getattr(module, class_name)
+    return args_class(**kwargs) if not args else args_class(*args, **kwargs)
 
-    def __init__(
-        self,
-        model_name_or_path: str,
-        optimizer_init: Dict[str, Any],
-        lr_scheduler_init: Dict[str, Any],
-        pl_lrs_cfg: Optional[Dict[str, Any]] = None,
-        model_cfg: Optional[Dict[str, Any]] = None,
-        task_name: str = DEFAULT_TASK,
-        experiment_tag: str = "default",
-    ):
-        """In this example, this :class:`~pytorch_lightning.core.lightning.LightningModule` is initialized by composing
-        the ./config/fts/fts_defaults.yaml default configuration with various scheduled finetuning yaml configurations
-        via the :class:`~pytorch_lightning.utilities.cli.LightningCLI` but it can be used like any other
-        :class:`~pytorch_lightning.core.lightning.LightningModule` as well.
 
-        Args:
-            model_name_or_path (str): Path to pretrained model or identifier `from <https://huggingface.co/models>`_
-            optimizer_init (Dict[str, Any]): The desired optimizer configuration.
-            lr_scheduler_init (Dict[str, Any]): The desired learning rate scheduler config
-            pl_lrs_cfg (Optional[Dict[str, Any]]): Defines custom overrides of pytorch lightning lr_scheduler defaults
-                defined in :func:`~pytorch_lighting.optimizers._get_default_scheduler_config`
-                Example::
+# override PyTorch default, extending it to capture additional salient packages for reproducability
+# https://github.com/pytorch/pytorch/blob/7c2489bdae5a96dc122c3bb7b42c18528bcfdc86/torch/utils/collect_env.py#L271
+def get_pip_packages(run_lambda):
+    """Returns `pip list` output.
 
-                .. code-block:: yaml
-
-                pl_lrs_cfg:
-                    interval: epoch
-                    frequency: 1
-                    name: CosineAnnealingWithWarmRestartsLR
-
-            model_cfg (Optional[Dict[str, Any]], optional): Defines overrides of the default model config. Defaults to
-                ``None``.
-            task_name (str, optional): The SuperGLUE task to execute, one of ``'rte'``, ``'boolq'``. Defaults to "rte".
-            experiment_tag (str, optional): The tag to use for the experiment and tensorboard logs. Defaults to
-                "default".
-        """
-        super().__init__()
-        self.optimizer_init = optimizer_init
-        self.lr_scheduler_init = lr_scheduler_init
-        self.pl_lrs_cfg = pl_lrs_cfg or {}
-        if task_name in TASK_NUM_LABELS.keys():
-            self.task_name = task_name
+    Note: will also find conda-installed pytorch
+    and numpy packages.
+    """
+    # People generally have `pip` as `pip` or `pip3`
+    # But here it is incoved as `python -mpip`
+    def run_with_pip(pip):
+        if collect_env.get_platform() == "win32":
+            system_root = os.environ.get("SYSTEMROOT", "C:\\Windows")
+            findstr_cmd = os.path.join(system_root, "System32", "findstr")
+            grep_cmd = fr'{findstr_cmd} /R "numpy torch mypy transformers datasets"'
         else:
-            self.task_name = DEFAULT_TASK
-            rank_zero_warn(f"Invalid task_name '{task_name}'. Proceeding with the default task: '{DEFAULT_TASK}'")
-        self.num_labels = TASK_NUM_LABELS[self.task_name]
-        self.save_hyperparameters()
-        self.experiment_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{experiment_tag}"
-        self.model_cfg = model_cfg or {}
-        conf = AutoConfig.from_pretrained(model_name_or_path, num_labels=self.num_labels, local_files_only=False)
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=conf)
-        self.model.config.update(self.model_cfg)  # apply model config overrides
-        self.metric = datasets.load_metric("super_glue", self.task_name, experiment_id=self.experiment_id)
-        self.no_decay = ["bias", "LayerNorm.weight"]
-        self.finetuningscheduler_callback = None
+            grep_cmd = r'grep "torch\|numpy\|mypy\|transformers\|datasets"'
+        return collect_env.run_and_read_all(run_lambda, pip + " list --format=freeze | " + grep_cmd)
 
-    def forward(self, **inputs):
-        return self.model(**inputs)
+    pip_version = "pip3" if sys.version[0] == "3" else "pip"
+    out = run_with_pip(sys.executable + " -mpip")
 
-    def training_step(self, batch, batch_idx):
-        outputs = self(**batch)
-        loss = outputs[0]
-        return loss
+    return pip_version, out
 
-    def training_epoch_end(self, outputs: List[Any]) -> None:
-        loss = torch.stack([x["loss"] for x in outputs]).mean()
-        self.log("train_loss", loss, prog_bar=True, sync_dist=True)
-        if self.finetuningscheduler_callback:
-            self.log("finetuning_schedule_depth", float(self.finetuningscheduler_callback.curr_depth))
 
-    def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        outputs = self(**batch)
-        val_loss, logits = outputs[:2]
+def collect_env_info() -> Dict:
+    """Collect environmental details, logging versions of salient packages for improved reproducibility.
 
-        if self.num_labels >= 1:
-            preds = torch.argmax(logits, axis=1)
-        elif self.num_labels == 1:
-            preds = logits.squeeze()
+    Returns:
+        Dict: The dictionary of environmental details
+    """
+    _ = namedtuple(
+        "SystemEnv",
+        [
+            "torch_version",
+            "is_debug_build",
+            "cuda_compiled_version",
+            "gcc_version",
+            "clang_version",
+            "cmake_version",
+            "os",
+            "libc_version",
+            "python_version",
+            "python_platform",
+            "is_cuda_available",
+            "cuda_runtime_version",
+            "nvidia_driver_version",
+            "nvidia_gpu_models",
+            "cudnn_version",
+            "pip_version",  # 'pip' or 'pip3'
+            "pip_packages",
+            "conda_packages",
+            "hip_compiled_version",
+            "hip_runtime_version",
+            "miopen_runtime_version",
+            "caching_allocator_config",
+        ],
+    )
+    collect_env.get_pip_packages = get_pip_packages
+    sys_info = collect_env.get_env_info()
+    sys_dict = sys_info._asdict()
+    pip_dict = {name: ver for name, ver in [p.split("==") for p in sys_info._asdict()["pip_packages"].split("\n")]}
+    sys_dict["pip_packages"] = pip_dict
+    return sys_dict
 
-        labels = batch["labels"]
-        self.log("val_loss", val_loss, prog_bar=True)
-        return {"loss": val_loss, "preds": preds, "labels": labels}
 
-    def validation_epoch_end(self, outputs):
-        preds = torch.cat([x["preds"] for x in outputs]).detach().cpu().numpy()
-        labels = torch.cat([x["labels"] for x in outputs]).detach().cpu().numpy()
-        # loss = torch.stack([x["loss"] for x in outputs]).mean()
-        # self.log("val_loss", loss, prog_bar=True, sync_dist=True)
-        metric_dict = self.metric.compute(predictions=preds, references=labels)
-        self.log_dict(metric_dict, prog_bar=True, sync_dist=True)
-
-    def _init_param_groups(self) -> List[Dict]:
-        """Initialize the parameter groups. Used to ensure weight_decay is not applied to our specified bias
-        parameters when we initialize the optimizer.
-
-        Returns:
-            List[Dict]: A list of parameter group dictionaries.
-        """
-        return [
-            {
-                "params": [
-                    p
-                    for n, p in self.model.named_parameters()
-                    if not any(nd in n for nd in self.no_decay) and p.requires_grad
-                ],
-                "weight_decay": self.optimizer_init["init_args"]["weight_decay"],
-            },
-            {
-                "params": [
-                    p
-                    for n, p in self.model.named_parameters()
-                    if any(nd in n for nd in self.no_decay) and p.requires_grad
-                ],
-                "weight_decay": 0.0,
-            },
-        ]
-
-    def configure_optimizers(self):
-        # the phase 0 parameters will have been set to require gradients during setup
-        # you can initialize the optimizer with a simple requires.grad filter as is often done,
-        # but in this case we pass a list of parameter groups to ensure weight_decay is
-        # not applied to the bias parameter (for completeness, in this case it won't make much
-        # performance difference)
-        optimizer = instantiate_class(self._init_param_groups(), self.optimizer_init)
-        scheduler = {"scheduler": instantiate_class(optimizer, self.lr_scheduler_init), **self.pl_lrs_cfg}
-        return [optimizer], [scheduler]
-
-    def configure_callbacks(self):
-        found_fts = [c for c in self.trainer.callbacks if isinstance(c, FinetuningScheduler)]
-        if found_fts:
-            self.finetuningscheduler_callback = found_fts[0]
-        return super().configure_callbacks()
+transformers_logging.set_verbosity_error()
+# ignore warnings related tokenizers_parallelism/DataLoader parallelism tradeoff and
+#  expected logging behavior
+for warnf in [".*does not have many workers*", ".*The number of training samples.*"]:
+    warnings.filterwarnings("ignore", warnf)
 
 
 class RteBoolqDataModule(pl.LightningDataModule):
@@ -211,9 +189,6 @@ class RteBoolqDataModule(pl.LightningDataModule):
         "end_positions",
         "labels",
     )
-    # ignore warnings related tokenizers_parallelism/DataLoader parallelism tradeoff and expected logging behavior
-    for warnf in [".*does not have many workers*", ".*The number of training samples.*"]:
-        warnings.filterwarnings("ignore", warnf)
 
     def __init__(
         self,
@@ -286,6 +261,155 @@ class RteBoolqDataModule(pl.LightningDataModule):
         # Rename label to labels to make it easier to pass to model forward
         features["labels"] = example_batch["label"]
         return features
+
+
+class RteBoolqModule(pl.LightningModule):
+    """A :class:`~pytorch_lightning.core.lightning.LightningModule` that can be used to finetune a foundational
+    model on either the RTE or BoolQ `SuperGLUE <https://super.gluebenchmark.com/>`_ tasks using Hugging Face
+    implementations of a given model and the `SuperGLUE Hugging Face dataset.
+
+    <https://huggingface.co/datasets/super_glue#data-instances>`_.
+    """
+
+    def __init__(
+        self,
+        model_name_or_path: str,
+        optimizer_init: Dict[str, Any],
+        lr_scheduler_init: Dict[str, Any],
+        pl_lrs_cfg: Optional[Dict[str, Any]] = None,
+        model_cfg: Optional[Dict[str, Any]] = None,
+        task_name: str = DEFAULT_TASK,
+        experiment_tag: str = "default",
+        log_env_details: bool = True,
+    ):
+        """In this example, this :class:`~pytorch_lightning.core.lightning.LightningModule` is initialized by composing
+        the ./config/fts/fts_defaults.yaml default configuration with various scheduled finetuning yaml configurations
+        via the :class:`~pytorch_lightning.utilities.cli.LightningCLI` but it can be used like any other
+        :class:`~pytorch_lightning.core.lightning.LightningModule` as well.
+
+        Args:
+            model_name_or_path (str): Path to pretrained model or identifier `from <https://huggingface.co/models>`_
+            optimizer_init (Dict[str, Any]): The desired optimizer configuration.
+            lr_scheduler_init (Dict[str, Any]): The desired learning rate scheduler config
+            pl_lrs_cfg (Optional[Dict[str, Any]]): Defines custom overrides of pytorch lightning lr_scheduler defaults
+                defined in :func:`~pytorch_lighting.optimizers._get_default_scheduler_config`
+                Example::
+
+                .. code-block:: yaml
+
+                pl_lrs_cfg:
+                    interval: epoch
+                    frequency: 1
+                    name: CosineAnnealingWithWarmRestartsLR
+
+            model_cfg (Optional[Dict[str, Any]], optional): Defines overrides of the default model config. Defaults to
+                ``None``.
+            task_name (str, optional): The SuperGLUE task to execute, one of ``'rte'``, ``'boolq'``. Defaults to "rte".
+            experiment_tag (str, optional): The tag to use for the experiment and tensorboard logs. Defaults to
+                "default".
+            log_env_details (bool, optional): Whether to collect and log environmental details to facilitate
+                reproducibility. Defaults to ``True``.
+        """
+        super().__init__()
+        self.optimizer_init = optimizer_init
+        self.lr_scheduler_init = lr_scheduler_init
+        self.pl_lrs_cfg = pl_lrs_cfg or {}
+        if task_name in TASK_NUM_LABELS.keys():
+            self.task_name = task_name
+        else:
+            self.task_name = DEFAULT_TASK
+            rank_zero_warn(f"Invalid task_name '{task_name}'. Proceeding with the default task: '{DEFAULT_TASK}'")
+        self.num_labels = TASK_NUM_LABELS[self.task_name]
+        self.experiment_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{experiment_tag}"
+        self.model_cfg = model_cfg or {}
+        conf = AutoConfig.from_pretrained(model_name_or_path, num_labels=self.num_labels, local_files_only=False)
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=conf)
+        self.model.config.update(self.model_cfg)  # apply model config overrides
+        self.init_hparams = {
+            "optimizer": self.optimizer_init,
+            "lr_scheduler": self.lr_scheduler_init,
+            "pl_lrs_cfg": self.pl_lrs_cfg,
+            "model_config": self.model.config,
+            "model_name_or_path": model_name_or_path,
+            "task_name": self.task_name,
+            "experiment_id": self.experiment_id,
+        }
+        self.init_hparams["env_info"] = collect_env_info() if log_env_details else None
+        self.save_hyperparameters(self.init_hparams)
+        self.metric = datasets.load_metric("super_glue", self.task_name, experiment_id=self.experiment_id)
+        self.no_decay = ["bias", "LayerNorm.weight"]
+        self.finetuningscheduler_callback = None
+
+    def forward(self, **inputs):
+        return self.model(**inputs)
+
+    def training_step(self, batch, batch_idx):
+        outputs = self(**batch)
+        loss = outputs[0]
+        return loss
+
+    def training_epoch_end(self, outputs: List[Any]) -> None:
+        loss = torch.stack([x["loss"] for x in outputs]).mean()
+        self.log("train_loss", loss, prog_bar=True, sync_dist=True)
+        if self.finetuningscheduler_callback:
+            self.log("finetuning_schedule_depth", float(self.finetuningscheduler_callback.curr_depth))
+
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        outputs = self(**batch)
+        val_loss, logits = outputs[:2]
+        if self.num_labels >= 1:
+            preds = torch.argmax(logits, axis=1)
+        elif self.num_labels == 1:
+            preds = logits.squeeze()
+        labels = batch["labels"]
+        self.log("val_loss", val_loss, prog_bar=True)
+        metric_dict = self.metric.compute(predictions=preds, references=labels)
+        self.log_dict(metric_dict, prog_bar=True)
+
+    def _init_param_groups(self) -> List[Dict]:
+        """Initialize the parameter groups. Used to ensure weight_decay is not applied to our specified bias
+        parameters when we initialize the optimizer.
+
+        Returns:
+            List[Dict]: A list of parameter group dictionaries.
+        """
+        return [
+            {
+                "params": [
+                    p
+                    for n, p in self.model.named_parameters()
+                    if not any(nd in n for nd in self.no_decay) and p.requires_grad
+                ],
+                "weight_decay": self.optimizer_init["init_args"]["weight_decay"],
+            },
+            {
+                "params": [
+                    p
+                    for n, p in self.model.named_parameters()
+                    if any(nd in n for nd in self.no_decay) and p.requires_grad
+                ],
+                "weight_decay": 0.0,
+            },
+        ]
+
+    def configure_optimizers(self):
+        # the phase 0 parameters will have been set to require gradients during setup
+        # you can initialize the optimizer with a simple requires.grad filter as is often done,
+        # but in this case we pass a list of parameter groups to ensure weight_decay is
+        # not applied to the bias parameter (for completeness, in this case it won't make much
+        # performance difference)
+        optimizer = instantiate_registered_class(args=self._init_param_groups(), init=self.optimizer_init)
+        scheduler = {
+            "scheduler": instantiate_registered_class(args=optimizer, init=self.lr_scheduler_init),
+            **self.pl_lrs_cfg,
+        }
+        return [optimizer], [scheduler]
+
+    def configure_callbacks(self):
+        found_fts = [c for c in self.trainer.callbacks if isinstance(c, FinetuningScheduler)]
+        if found_fts:
+            self.finetuningscheduler_callback = found_fts[0]
+        return super().configure_callbacks()
 
 
 class CustLightningCLI(LightningCLI):
