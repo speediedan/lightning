@@ -411,6 +411,12 @@ class SchedulingMixin(ABC):
                 if not isinstance(self.ft_schedule, Dict)
                 else self.ft_schedule
             )
+            # save the parsed schedule to our log directory to ensure reproducability
+            SchedulingMixin.save_schedule(
+                f"{self.pl_module.__class__.__name__}_ft_schedule.yaml",
+                self.ft_schedule,
+                self.pl_module.trainer.log_dir,
+            )
         else:
             self.gen_implicit_schedule(self.pl_module.trainer.log_dir)
             self.ft_schedule = self.pl_module.trainer.training_type_plugin.broadcast(self.ft_schedule)
@@ -497,6 +503,30 @@ class SchedulingMixin(ABC):
         self.ft_schedule = self.load_yaml_schedule(default_ft_schedule)
 
     @staticmethod
+    def save_schedule(schedule_name: str, layer_config: Dict, dump_loc: str) -> os.PathLike:
+        """Save loaded or generated schedule to a directory to ensure reproducability.
+
+        Args:
+            schedule_name (str): The name of the schedule.
+            layer_config (Dict): The saved schedule dictionary.
+            dump_loc (str): The directory to which the generated schedule (.yaml) should be written
+
+        Returns:
+            os.PathLike: The path to the generated schedule, by default
+            :paramref:`~pytorch_lightning.trainer.trainer.Trainer.log_dir` with the name
+            (:paramref:`~pytorch_lightning.trainer.trainer.lightning_module`.__class__.__name__)_ft_schedule.yaml
+        """
+        dump_path = pathlib.Path(dump_loc)
+        dump_path.mkdir(exist_ok=True, parents=True)
+        ft_schedule_yaml = dump_path / schedule_name
+        fs = get_filesystem(ft_schedule_yaml)
+        with fs.open(ft_schedule_yaml, "w", newline="") as fp:
+            yaml.dump(layer_config, fp)
+        assert os.access(ft_schedule_yaml, os.F_OK)
+        rank_zero_info(f"Finetuning schedule dumped to {ft_schedule_yaml}.")
+        return ft_schedule_yaml
+
+    @staticmethod
     def gen_ft_schedule(module: Module, dump_loc: str) -> os.PathLike:
         """Generate the default finetuning schedule using a naive, 2-parameters per-level heuristic.
 
@@ -527,18 +557,10 @@ class SchedulingMixin(ABC):
         if len(model_params) % 2 == 1:
             param_lists.append([model_params[-1][0]])
         layer_config = {}
-        dump_path = pathlib.Path(dump_loc)
-        dump_path.mkdir(exist_ok=True, parents=True)
-        ft_schedule_yaml = dump_path / f"{module.__class__.__name__}_ft_schedule.yaml"
-        fs = get_filesystem(ft_schedule_yaml)
-        layer_config = {}
         for i, l in enumerate(param_lists):
             layer_config[i] = {"params": l}
-        with fs.open(ft_schedule_yaml, "w", newline="") as fp:
-            yaml.dump(layer_config, fp)
-        assert os.access(ft_schedule_yaml, os.F_OK)
-        rank_zero_info(f"Finetuning schedule dumped to {ft_schedule_yaml}.")
-        return ft_schedule_yaml
+        schedule_name = f"{module.__class__.__name__}_ft_schedule.yaml"
+        return SchedulingMixin.save_schedule(schedule_name, layer_config, dump_loc)
 
     @staticmethod
     def load_yaml_schedule(schedule_yaml_file: str) -> Dict:

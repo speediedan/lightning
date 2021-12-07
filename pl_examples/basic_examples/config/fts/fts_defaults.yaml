@@ -2,16 +2,15 @@ seed_everything: 42
 data:
   class_path: pl_examples.basic_examples.fts_superglue.RteBoolqDataModule
   init_args:
-    model_name_or_path: albert-base-v2
+    model_name_or_path: microsoft/deberta-v3-base
     task_name: rte
     tokenizers_parallelism: false
     max_seq_length: 128
-    train_batch_size: 32
-    eval_batch_size: 32
+    train_batch_size: 16
+    eval_batch_size: 16
 model:
   class_path: pl_examples.basic_examples.fts_superglue.RteBoolqModule
   init_args:
-    model_name_or_path: albert-base-v2
     optimizer_init:
       class_path: torch.optim.AdamW
       init_args:
