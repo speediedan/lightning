@@ -3,16 +3,17 @@ trainer:
   - class_path: pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler
     init_args:
       ft_schedule: ./pl_examples/basic_examples/config/fts/RteBoolqModule_ft_schedule_deberta_base.yaml
+      max_depth: 1
   - class_path: pytorch_lightning.callbacks.finetuning_scheduler.FTSCheckpoint
     init_args:
-      save_top_k: 5
+      save_top_k: 1
       monitor: val_loss
       verbose: true
   - class_path: pytorch_lightning.callbacks.finetuning_scheduler.FTSEarlyStopping
     init_args:
       monitor: val_loss
       min_delta: 0.001
-      patience: 2 # limited patience for testing
+      patience: 2 # limited patience for example
       verbose: false
       mode: min
   logger:
