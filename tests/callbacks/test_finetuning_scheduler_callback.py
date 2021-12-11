@@ -31,6 +31,7 @@ from pytorch_lightning.callbacks.finetuning_scheduler import (
     FTSCheckpoint,
     FTSEarlyStopping,
 )
+from pytorch_lightning.utilities.cloud_io import get_filesystem
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 from tests.callbacks.test_finetuning_callback import ConvBlock, ConvBlockParam
 from tests.helpers import BoringModel
@@ -121,7 +122,7 @@ class TestFinetuningScheduler(FinetuningScheduler):
 
 
 @pytest.fixture(scope="function")
-def ckpt_set(tmpdir_factory):
+def ckpt_set(tmpdir_factory) -> Dict:
     """A fixture that generates a 'best' and 'kth' checkpoint to be used in scheduled finetuning resumption
     testing."""
     seed_everything(42)
@@ -158,6 +159,39 @@ def boring_ft_schedule(tmpdir_factory) -> Tuple[Path, Dict]:
     epoch_only_sched[1]["max_transition_epoch"] = 2
     epoch_only_sched[2]["max_transition_epoch"] = 2
     return unmod_schedule_file, mod_sched_dict, epoch_only_sched
+
+
+@pytest.fixture(scope="function")
+def invalid_schedules(tmpdir_factory) -> Dict:
+    """A fixture that generates a dictionary of invalid schedules testing."""
+    valid_sched_start = """
+0:
+  params:
+  - layer.2.bias
+  - layer.2.weight"""
+    valid_sched_end = """
+2:
+  params:
+  - layer.0.bias
+  - layer.0.weight"""
+    non_integer_phase = """
+1.1:
+  params:
+  - layer.1.bias
+  - layer.1.weight"""
+    invalid_sched = {}
+    invalid_sched["non_integer"] = valid_sched_start + non_integer_phase + valid_sched_end
+    invalid_sched["non_contiguous"] = valid_sched_start + valid_sched_end
+    invalid_sched["dup_key"] = valid_sched_start + valid_sched_start + non_integer_phase
+    tmpdir = Path(tmpdir_factory.getbasetemp())
+    for k, v in invalid_sched.items():
+        ft_schedule_yaml = tmpdir / f"{k}.yaml"
+        fs = get_filesystem(ft_schedule_yaml)
+        with fs.open(ft_schedule_yaml, "w", newline="") as fp:
+            # with fs.open(ft_schedule_yaml, "w") as fp:
+            fp.write(v)
+        invalid_sched[k] = ft_schedule_yaml
+    return invalid_sched
 
 
 class ComplexNestedModel(LightningModule):
@@ -442,6 +476,31 @@ def test_finetuningscheduling_misconfiguration(tmpdir, callbacks: List[Callback]
         fts = callbacks[0]
         if fts.ft_schedule:
             _ = fts.load_yaml_schedule(fts.ft_schedule)
+
+
+@pytest.mark.parametrize(
+    "schedule_key, expected",
+    [
+        ("dup_key", ("Duplicate key", None)),
+        ("non_integer", ("non-integer keys", "layer.1.bias")),
+        ("non_contiguous", ("non-contiguous or non-zero-indexed keys", "layer.0.bias")),
+    ],
+    ids=["dup_key", "non_int", "non_contig"],
+)
+def test_finetuningscheduling_invalid_schedules(tmpdir, invalid_schedules, schedule_key: str, expected: Tuple):
+    """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` misconfiguration
+    exceptions are properly raised."""
+    callbacks = [FinetuningScheduler(ft_schedule=invalid_schedules[schedule_key])]
+    model = FinetuningSchedulerBoringModel()
+    trainer = Trainer(default_root_dir=tmpdir, callbacks=callbacks)
+    with pytest.raises(MisconfigurationException, match=expected[0]):
+        trainer.fit(model)
+    if expected[1]:
+        corrected_path = tmpdir / "lightning_logs" / "version_0"
+        corrected_schedule = corrected_path / f"{trainer.lightning_module.__class__.__name__}_ft_schedule_valid.yaml"
+        valid_dict = callbacks[0].load_yaml_schedule(corrected_schedule)
+        # ensure we can load our suggested schedule and it loads as expected
+        assert valid_dict[1]["params"][0] == expected[1]
 
 
 @pytest.mark.parametrize(

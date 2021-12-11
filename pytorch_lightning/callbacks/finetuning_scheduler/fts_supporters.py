@@ -381,6 +381,25 @@ class FTSCheckpoint(ModelCheckpoint, CallbackResolverMixin):
                 self.kth_value = self.best_k_models[self.kth_best_model_path]
 
 
+class UniqueKeyLoader(yaml.SafeLoader):
+    """Alters SafeLoader to enable duplicate key detection by the SafeConstructor."""
+
+    def construct_mapping(self, node, deep=False):
+        """Overrides the construct_mapping method of the SafeConstructor to raise a ValueError if duplicate keys
+        are found.
+
+        Inspired by and adapated from https://stackoverflow.com/a/63215043
+        """
+        mapping = []
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key not in mapping:
+                mapping.append(key)
+            else:
+                raise ValueError(key)
+        return super().construct_mapping(node, deep)
+
+
 class SchedulingMixin(ABC):
     """Functionality for generating, parsing and executing finetuning schedules."""
 
@@ -432,6 +451,7 @@ class SchedulingMixin(ABC):
         """
         max_epoch_wm = -1
         max_phase = 0
+        self.validate_schedule_keys()
         named_params = dict(self.pl_module.named_parameters()).keys()
         for depth in self.ft_schedule.keys():
             max_phase = max(max_phase, depth)
@@ -451,6 +471,35 @@ class SchedulingMixin(ABC):
         if self.epoch_transitions_only:
             self.validate_epoch_transitions()
         return max_phase, max_epoch_wm
+
+    def validate_schedule_keys(self) -> None:
+        """Ensures schedule keys are integers, zero-based and contiguous. If the schedule does not meet these
+        requirements, attempts to transform the passed schedule to meet them and writes the candidate schedule out
+        for subsequent user validation.
+
+        Raises:
+            MisconfigurationException: Raised if the schedule contains non-integer keys and/or non-zero-based and
+                contiguous keys.
+        """
+        all_ints = all([isinstance(k, int) for k in self.ft_schedule.keys()])
+        contiguous = len(self.ft_schedule.keys()) == (max(self.ft_schedule.keys()) + 1)
+        rewrite_dest = None
+        if not (all_ints and contiguous):
+            for i, k in enumerate(sorted(self.ft_schedule.keys())):
+                self.ft_schedule[i] = self.ft_schedule.pop(k)
+            # write the reconfigured schedule to our log directory to allow user validation
+            rewrite_dest = SchedulingMixin.save_schedule(
+                f"{self.pl_module.__class__.__name__}_ft_schedule_valid.yaml",
+                self.ft_schedule,
+                self.pl_module.trainer.log_dir,
+            )
+            err_msg = "The supplied schedule was found to"
+            reason_msg = " use non-integer keys " if not all_ints else " have non-contiguous or non-zero-indexed keys "
+            raise MisconfigurationException(
+                err_msg + reason_msg + "and has thus been reconfigured and saved to "
+                f"'{rewrite_dest}'. Please validate the reconfigured schedule and restart "
+                "training with a valid schedule."
+            )
 
     def init_ft_sched(self) -> None:
         """Generate the default finetuning schedule and/or load it into
@@ -578,11 +627,18 @@ class SchedulingMixin(ABC):
         """
         try:
             with open(schedule_yaml_file) as df:
-                schedule_dict = yaml.load(df, Loader=yaml.FullLoader)
+                schedule_dict = yaml.load(df, Loader=UniqueKeyLoader)
         except FileNotFoundError as fnf:
             error_msg = (
                 f"Could not find specified finetuning scheduling file '{schedule_yaml_file}': {fnf}."
                 f"Please reconfigure and try again."
+            )
+            rank_zero_warn(error_msg)
+            raise MisconfigurationException(error_msg)
+        except ValueError as dup_key:
+            error_msg = (
+                f"Duplicate key ({dup_key.args[0]}) found in supplied schedule: {schedule_yaml_file}'. Please validate "
+                "schedule before resubmitting."
             )
             rank_zero_warn(error_msg)
             raise MisconfigurationException(error_msg)
