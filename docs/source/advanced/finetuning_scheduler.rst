@@ -8,8 +8,14 @@
 ********************
 Finetuning Scheduler
 ********************
+Training with the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback confers
+a host of benefits. It was created to meet the following objectives in roughly descending order of priority:
 
-The :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback enables multi-phase,
+* maximize finetuning flexibility
+* expedite and facilitate exploration of model tuning dynamics in research
+* allow marginal performance improvements of finetuned models
+
+Fundamentally, the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback enables multi-phase,
 scheduled finetuning of foundational models. Gradual unfreezing (i.e. thawing) can help maximize foundational model
 knowledge retention while allowing (typically upper layers of) the model to optimally adapt to new tasks during
 transfer learning [#]_ [#]_ [#]_ .
@@ -27,7 +33,7 @@ final phase of the schedule has its stopping criteria met. See
 .. warning:: The :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback is in beta
     and subject to change.
 
-Basic Example
+Basic Usage
 =============
 If no finetuning schedule is user-provided,
 :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` will generate a
@@ -179,7 +185,8 @@ and transitions will be exclusively epoch-driven.
 
 For a practical end-to-end example of using
 :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` in implicit versus explicit modes,
-see :ref:`scheduled finetuning for SuperGLUE<scheduled-finetuning-superglue>` below.
+see :ref:`scheduled finetuning for SuperGLUE<scheduled-finetuning-superglue>` below or the
+`notebook-based tutorial  <https://pytorch-lightning.readthedocs.io/en/latest/notebooks/lightning_examples/text-transformers.html>`_ .
 
 
 Resuming Scheduled Finetuning Training Sessions
@@ -199,7 +206,7 @@ metadata.
     from pytorch_lightning import Trainer
     from pytorch_lightning.callbacks.finetuning_scheduler import FinetuningScheduler
 
-    trainer = Trainer(callbacks=[FinetuningScheduler()], resume_from_checkpoint="some/path/to/my_checkpoint.ckpt")
+    trainer = Trainer(callbacks=[FinetuningScheduler()], ckpt_path="some/path/to/my_checkpoint.ckpt")
 
 Training will resume at the depth/level of the provided checkpoint according the specified schedule. Schedules can be
 altered between training sessions but schedule compatibility is left to the user for maximal flexibility. If executing a
@@ -218,7 +225,7 @@ sessions.
 
         trainer = Trainer(
             callbacks=[FinetuningScheduler(new_incarnation_mode=True)],
-            resume_from_checkpoint="some/path/to/my_kth_best_checkpoint.ckpt",
+            ckpt_path="some/path/to/my_kth_best_checkpoint.ckpt",
         )
 
     To handle the edge case wherein one is resuming scheduled finetuning from a non-best checkpoint and the previous
@@ -237,17 +244,16 @@ configurations.
 
 .. note::
    Currently, :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` only supports
-   the following :class:`~pytorch_lightning.plugins.training_type.training_type_plugin.TrainingTypePlugin` s:
+   the following :class:`~pytorch_lightning.utilities.enums._StrategyType` s:
 
    .. hlist::
       :columns: 3
 
-      * :class:`~pytorch_lightning.plugins.training_type.DDPPlugin`
-      * :class:`~pytorch_lightning.plugins.training_type.DDPShardedPlugin`
-      * :class:`~pytorch_lightning.plugins.training_type.DDPSpawnPlugin`
-      * :class:`~pytorch_lightning.plugins.training_type.DDPSpawnShardedPlugin`
-      * :class:`~pytorch_lightning.plugins.training_type.DataParallelPlugin`
-      * :class:`~pytorch_lightning.plugins.training_type.SingleDevicePlugin`
+      * :obj:`~pytorch_lightning.utilities.enums._StrategyType.DDP`
+      * :obj:`~pytorch_lightning.utilities.enums._StrategyType.DDP_SHARDED`
+      * :obj:`~pytorch_lightning.utilities.enums._StrategyType.DDP_SPAWN`
+      * :obj:`~pytorch_lightning.utilities.enums._StrategyType.DDP_SHARDED_SPAWN`
+      * :obj:`~pytorch_lightning.utilities.enums._StrategyType.DP`
 
 ----------
 
@@ -262,7 +268,7 @@ A demonstration of the scheduled finetuning callback
 `BoolQ <https://github.com/google-research-datasets/boolean-questions>`_ tasks of the
 `SuperGLUE <https://super.gluebenchmark.com/>`_ benchmark and the :ref:`LightningCLI<common/lightning_cli:LightningCLI>`
 is available under ./pl_examples/basic_examples/ (depends upon the ``transformers`` and ``datasets`` packages from
-Hugging Face)
+Hugging Face and ``sentencepiece`` for the tested model)
 
 There are three different demo schedule configurations composed with shared defaults (./config/fts/fts_defaults.yaml)
 provided for the default 'rte' task. Note DDP w/ 2 GPUs is the default configuration so ensure you adjust the
@@ -283,10 +289,33 @@ configuration files referenced below as desired for other configurations.
 All three training scenarios use identical configurations with the exception of the provided finetuning schedule. See
 the |tensorboard_summ| and table below for a characterization of the relative computational and performance tradeoffs
 associated with these :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` configurations.
-Note that though this example is intended to capture "typical" performance/computational tradeoffs of
-:class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler`, substantial variation is expected
-among use cases.
 
+:class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` expands the space of possible
+finetuning schedules and the composition of more sophisticated schedules can yield marginal finetuning performance
+gains. That stated, it should be emphasized the primary utility of
+:class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` is to grant greater finetuning
+flexibility for model exploration in research. For example, glancing at DeBERTa-v3's implicit training run, a critical
+tuning transition point is immediately apparent:
+
+.. raw:: html
+
+    <div style="max-width:400px; width:50%; height:auto;">
+        <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/n7U8XhrzRbmvVzC4SQSpWw/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfZXhwbGljaXQiOmZhbHNlLCJub2Z0c19iYXNlbGluZSI6ZmFsc2UsImZ0c19pbXBsaWNpdCI6dHJ1ZX0%3D">
+            <img alt="open tensorboard experiment" src="../_static/images/fts/implicit_training_transition.png">
+        </a>
+    </div>
+
+Our val_loss begins a precipitous decline at step 3119 which corresponds to phase 17 in the schedule. Referring to our
+schedule, in phase 17 we're beginning tuning the attention parameters of our 10th encoder layer (of 11). Interesting!
+Though beyond the scope of this documentation, it might be worth investigating these dynamics further and
+:class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` allows one to do just that quite
+easily.
+
+In addition to the `tensorboard experiment summaries <https://tensorboard.dev/experiment/n7U8XhrzRbmvVzC4SQSpWw/>`_,
+full logs/schedules for all three scenarios are available
+`here <https://drive.google.com/file/d/1LrUcisRLHeJgh_BDOOD_GUBPp5iHAkoR/view?usp=sharing>`_ and the checkpoints produced
+in the scenarios `here <https://drive.google.com/file/d/1t7myBgcqcZ9ax_IT9QVk-vFH_l_o5UXB/view?usp=sharing>`_
+(caution, ~3.5GB).
 
 .. list-table::
    :widths: 25 25 25 25
@@ -301,62 +330,36 @@ among use cases.
      - Default
      - User-defined
    * - | RTE Accuracy
-       | (``0.69``, ``0.75``, ``0.77``)
+       | (``0.81``, ``0.84``, ``0.85``)
      -
         .. raw:: html
 
             <div style='width:150px;height:auto'>
-                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/Qy917MVDRlmkx31A895CzA/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfaW1wbGljaXQiOmZhbHNlLCJmdHNfZXhwbGljaXQiOmZhbHNlfQ%3D%3D">
-                    <img alt="open tensorboard experiment" src="../_static/images/fts/nofts_baseline.png">
+                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/n7U8XhrzRbmvVzC4SQSpWw/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfZXhwbGljaXQiOmZhbHNlLCJub2Z0c19iYXNlbGluZSI6dHJ1ZSwiZnRzX2ltcGxpY2l0IjpmYWxzZX0%3D">
+                    <img alt="open tensorboard experiment" src="../_static/images/fts/nofts_baseline_accuracy_deberta_base.png">
                 </a>
             </div>
      -
         .. raw:: html
 
             <div style='width:150px;height:auto'>
-                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/Qy917MVDRlmkx31A895CzA/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfaW1wbGljaXQiOnRydWUsImZ0c19leHBsaWNpdCI6ZmFsc2UsIm5vZnRzX2Jhc2VsaW5lIjpmYWxzZX0%3D">
-                    <img alt="open tensorboard experiment" src="../_static/images/fts/fts_implicit.png">
+                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/n7U8XhrzRbmvVzC4SQSpWw/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfZXhwbGljaXQiOmZhbHNlLCJub2Z0c19iYXNlbGluZSI6ZmFsc2UsImZ0c19pbXBsaWNpdCI6dHJ1ZX0%3D">
+                    <img alt="open tensorboard experiment" src="../_static/images/fts/fts_implicit_accuracy_deberta_base.png">
                 </a>
             </div>
      -
         .. raw:: html
 
             <div style='width:150px;height:auto'>
-                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/Qy917MVDRlmkx31A895CzA/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfaW1wbGljaXQiOmZhbHNlLCJmdHNfZXhwbGljaXQiOnRydWUsIm5vZnRzX2Jhc2VsaW5lIjpmYWxzZX0%3D">
-                    <img alt="open tensorboard experiment" src="../_static/images/fts/fts_explicit.png">
-                </a>
-            </div>
-   * - | Validation Loss
-       | (``0.59``, ``0.50``, ``0.47``)
-     -
-        .. raw:: html
-
-            <div style='width:150px;height:auto'>
-                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/Qy917MVDRlmkx31A895CzA/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfaW1wbGljaXQiOmZhbHNlLCJmdHNfZXhwbGljaXQiOmZhbHNlfQ%3D%3D">
-                    <img alt="open tensorboard experiment" src="../_static/images/fts/nofts_baseline_loss.png">
-                </a>
-            </div>
-     -
-        .. raw:: html
-
-            <div style='width:150px;height:auto'>
-                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/Qy917MVDRlmkx31A895CzA/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfaW1wbGljaXQiOnRydWUsImZ0c19leHBsaWNpdCI6ZmFsc2UsIm5vZnRzX2Jhc2VsaW5lIjpmYWxzZX0%3D">
-                    <img alt="open tensorboard experiment" src="../_static/images/fts/fts_implicit_loss.png">
-                </a>
-            </div>
-     -
-        .. raw:: html
-
-            <div style='width:150px;height:auto'>
-                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/Qy917MVDRlmkx31A895CzA/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfaW1wbGljaXQiOmZhbHNlLCJmdHNfZXhwbGljaXQiOnRydWUsIm5vZnRzX2Jhc2VsaW5lIjpmYWxzZX0%3D">
-                    <img alt="open tensorboard experiment" src="../_static/images/fts/fts_explicit_loss.png">
+                <a target="_blank" rel="noopener noreferrer" href="https://tensorboard.dev/experiment/n7U8XhrzRbmvVzC4SQSpWw/#scalars&_smoothingWeight=0&runSelectionState=eyJmdHNfZXhwbGljaXQiOnRydWUsIm5vZnRzX2Jhc2VsaW5lIjpmYWxzZSwiZnRzX2ltcGxpY2l0IjpmYWxzZX0%3D">
+                    <img alt="open tensorboard experiment" src="../_static/images/fts/fts_explicit_accuracy_deberta_base.png">
                 </a>
             </div>
 
-In summary,
-:class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` can be used to achieve
-non-trivial model performance improvements in both implicit and explicit scheduling contexts at an also non-trivial
-computational cost.
+Note that though this example is intended to capture a common usage scenario, substantial variation is expected among
+use cases and models. In summary, :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler`
+provides increased finetuning flexibility that can be useful in a variety of contexts from exploring model tuning
+behavior to maximizing performance.
 
 .. figure:: ../_static/images/fts/fts_explicit_loss_anim.gif
    :alt: FinetuningScheduler Explicit Loss Animation
