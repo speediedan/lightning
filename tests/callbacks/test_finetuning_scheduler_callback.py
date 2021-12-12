@@ -593,7 +593,7 @@ def test_fts_multi_dp(tmpdir):
     assert finetuningscheduler_callback.curr_depth == finetuningscheduler_callback.max_depth
 
 
-@RunIf(standalone=True, min_gpus=2)
+@RunIf(standalone=False, min_gpus=2)
 def test_fts_multi_ddp(tmpdir):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` functions properly
     in a supported 'ddp' distributed context."""
@@ -623,7 +623,7 @@ def test_fts_multi_ddp_sharded(tmpdir):
     assert finetuningscheduler_callback.curr_depth == finetuningscheduler_callback.max_depth
 
 
-@RunIf(standalone=True, min_gpus=2)
+@RunIf(standalone=False, min_gpus=2)
 def test_fts_multi_ddp_spawn(tmpdir):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` functions properly
     in a supported 'ddp_spawn' distributed context."""
