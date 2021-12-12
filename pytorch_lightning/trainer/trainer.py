@@ -771,7 +771,7 @@ class Trainer(
 
         # TODO: ckpt_path only in v2.0
         ckpt_path = ckpt_path or self.resume_from_checkpoint
-	self.fit_ckpt_path = self.__set_ckpt_path(
+        self.fit_ckpt_path = self.__set_ckpt_path(
             ckpt_path, model_provided=model, model_connected=self.lightning_module is not None
         )
         results = self._run(model, ckpt_path=self.fit_ckpt_path)

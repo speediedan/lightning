@@ -273,8 +273,14 @@ class FTSCheckpoint(ModelCheckpoint, CallbackResolverMixin):
             finetuningscheduler_callback (Callback):
                 Reference to the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler`
                 callback being used.
+            save_on_train_epoch_end (bool): Whether to run checkpointing at the end of the training epoch. If this is
+                ``False``, then the check runs at the end of the validation. Defaults to ``True``
+                (instead of ``None`` :class:`~pytorch_lightning.callbacks.model_checkpoint.ModelCheckpoint` does) to
+                enable callback state restoration and support multi-phase restoration without changing
+                :meth:`~pytorch_lightning.trainer.on_load_checkpoint` logic.
         """
         super().__init__(*args, **kwargs)
+        self._save_on_train_epoch_end = True
         self.current_ckpt_depth = 0
         self.best_ckpt_depth = 0
         self.finetuningscheduler_callback = None
