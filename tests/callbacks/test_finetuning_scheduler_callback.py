@@ -424,21 +424,15 @@ def test_finetuningscheduling_intrafit(tmpdir, restore_best: bool):
         ([FinetuningScheduler(), FTSEarlyStopping(monitor="val_loss", patience=1)], ("FTSCheckpoint. Subs")),
         ([FinetuningScheduler(), EarlyStopping(monitor="val_loss", patience=1)], ("Stopping. Sub", "Checkpoint. Sub")),
         ([FinetuningScheduler(), FTSCheckpoint(monitor="val_loss", verbose=True)], ("Adding an FTSEarlyStopping")),
-        (
-            [
-                FinetuningScheduler(epoch_transitions_only=True),
-                FTSCheckpoint(monitor="val_loss", verbose=True),
-                FTSEarlyStopping(monitor="val_loss", patience=1),
-            ],
-            ("extraneous Early"),
-        ),
     ],
-    ids=["default", "nondef_es", "def_es", "nondef_ftsckpt", "eponly_es"],
+    ids=["default", "nondef_es", "def_es", "nondef_ftsckpt"],
 )
 def test_finetuningscheduler_callback_warns(tmpdir, recwarn, callbacks: List[Callback], expected: Tuple[str]):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` warnings that require a
     :class:`~pytorch_lighting.trainer.Trainer` to be defined are properly issued"""
-    _ = Trainer(default_root_dir=tmpdir, callbacks=callbacks)
+    model = FinetuningSchedulerBoringModel()
+    trainer = Trainer(default_root_dir=tmpdir, callbacks=callbacks)
+    trainer.fit(model)
     assert all([any([re.compile(w_msg).search(w.message.args[0]) for w in recwarn.list]) for w_msg in expected])
 
 
@@ -471,8 +465,10 @@ def test_finetuningscheduling_opt_warns():
 def test_finetuningscheduling_misconfiguration(tmpdir, callbacks: List[Callback], expected: str):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` misconfiguration
     exceptions are properly raised."""
+    model = FinetuningSchedulerBoringModel()
+    trainer = Trainer(default_root_dir=tmpdir, callbacks=callbacks)
     with pytest.raises(MisconfigurationException, match=expected):
-        _ = Trainer(default_root_dir=tmpdir, callbacks=callbacks)
+        trainer.fit(model)
         fts = callbacks[0]
         if fts.ft_schedule:
             _ = fts.load_yaml_schedule(fts.ft_schedule)
@@ -516,8 +512,10 @@ def test_finetuningscheduling_distributed_compat(tmpdir, strategy, gpus, plugins
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` misconfiguration
     exceptions are properly raised for currently unsupported plugins."""
     callbacks = [FinetuningScheduler()]
+    model = FinetuningSchedulerBoringModel()
+    trainer = Trainer(default_root_dir=tmpdir, callbacks=callbacks, strategy=strategy, gpus=gpus, plugins=plugins)
     with pytest.raises(MisconfigurationException, match="has not yet been adapted for the specified distributed"):
-        _ = Trainer(default_root_dir=tmpdir, callbacks=callbacks, strategy=strategy, gpus=gpus, plugins=plugins)
+        trainer.fit(model)
 
 
 def test_finetuningscheduling_optimizer_compat(tmpdir):
@@ -541,7 +539,7 @@ def test_finetuningscheduling_optimizer_compat(tmpdir):
 
 @pytest.mark.parametrize(
     "epoch_only_cfg, expected_state",
-    [(True, ((0, 2, 5, 8, 3, 3), "maximum phase-specified")), (False, (None, "missing a max_"))],
+    [(True, ((0, 2, 5, 8, 3, 3), "extraneous EarlyS", "maximum phase-specified")), (False, (None, "missing a max_"))],
     ids=["eponly", "noeponly"],
 )
 def test_finetuningscheduling_epoch_trans_only(tmpdir, boring_ft_schedule, epoch_only_cfg: bool, expected_state: Tuple):
@@ -555,13 +553,16 @@ def test_finetuningscheduling_epoch_trans_only(tmpdir, boring_ft_schedule, epoch
     callbacks = [
         FTSCheckpoint(monitor="val_loss", verbose=True),
         FinetuningScheduler(ft_schedule=ft_schedule, epoch_transitions_only=True),
+        FTSEarlyStopping(monitor="val_loss", patience=1),  # including an extraneous earlystopping callback to test warn
     ]
     trainer = Trainer(default_root_dir=tmpdir, callbacks=callbacks, max_epochs=6)
     finetuningscheduler_callback = get_fts(trainer)
     if epoch_only_cfg:
         # we're testing an epoch_transitions_only schedule that should trigger the specified warning
-        with pytest.warns(UserWarning, match=expected_state[1]):
+        with pytest.warns(UserWarning) as eto_warns:
             trainer.fit(model)
+        assert re.compile(expected_state[1]).search(eto_warns[0].message.args[0])
+        assert re.compile(expected_state[2]).search(eto_warns[1].message.args[0])
         # for the valid epoch_only_transitions schedule, verify expected state
         assert finetuningscheduler_callback.depth_remaining == expected_state[0][0]
         assert finetuningscheduler_callback.curr_depth == expected_state[0][1]

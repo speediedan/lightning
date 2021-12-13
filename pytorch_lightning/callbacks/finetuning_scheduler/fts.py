@@ -241,36 +241,12 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
         self.pl_module.trainer.checkpoint_connector.restore_training_state()
         self.pl_module.trainer.checkpoint_connector.resume_end()
 
-    def on_init_start(self, trainer: "pl.Trainer") -> None:
-        """Upon trainer initialization, validate a compatible
-        :class:`~pytorch_lightning.plugins.training_type.training_type_plugin.TrainingTypePlugin`
-        plugin is being used and ensure all
-        :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback dependencies are
-        met.
-
-        Args:
-            trainer (:class:`~pytorch_lightning.trainer.trainer.Trainer`): The
-                :class:`~pytorch_lightning.trainer.trainer.Trainer` object
-
-        Raises:
-            MisconfigurationException: If the
-                :class:`~pytorch_lightning.plugins.training_type.training_type_plugin.TrainingTypePlugin` plugin being
-                used is not currently compatible with the
-                :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback.
-        """
-        trainer.callbacks = self._configure_callback_deps(trainer)
-        if trainer.accelerator.training_type_plugin.__class__.__name__ not in self.supported_plugins:
-            raise MisconfigurationException(
-                "FTS is currently experimental and has not yet been adapted for the"
-                " specified distributed trainingtypeplugin please select from currently"
-                " compatible distributed training types (e.g."
-                " strategy='dp|ddp|ddp_spawn|ddp_sharded|ddp_sharded_spawn')"
-            )
-
     def on_before_accelerator_backend_setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
         """Before setting up the accelerator environment:
-        Dump the default finetuning schedule
-        OR
+        Validate a compatible :class:`~pytorch_lightning.plugins.training_type.training_type_plugin.TrainingTypePlugin`
+        plugin is being used and ensure all
+        :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback dependencies are
+        met. If a valid configuration is present, then either dump the default finetuning schedule OR
         1. configure the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSEarlyStopping`
             callback (if relevant)
         2. initialize the :attr:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler._fts_state`
@@ -284,7 +260,18 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
 
         Raises:
             SystemExit: Gracefully exit before training if only generating and not executing a finetuning schedule.
+            MisconfigurationException: If the
+                :class:`~pytorch_lightning.plugins.training_type.training_type_plugin.TrainingTypePlugin` plugin being
+                used is not currently compatible with the
+                :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback.
         """
+        trainer.callbacks = self._configure_callback_deps(trainer)
+        if trainer.accelerator.training_type_plugin.__class__.__name__ not in self.supported_plugins:
+            raise MisconfigurationException(
+                "FTS is currently experimental and has not yet been adapted for the"
+                " specified distributed strategy please select from currently"
+                " compatible distributed strategies (e.g. strategy='dp|ddp|ddp_spawn|ddp_sharded|ddp_sharded_spawn')"
+            )
         if self.gen_ft_sched_only:
             if trainer.is_global_zero:  # can't use @rank_zero_only decorator before accelerator setup
                 trainer.training_type_plugin.broadcast = lambda x: x
@@ -313,6 +300,23 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
             stage: The ``RunningStage.{SANITY_CHECKING,TRAINING,VALIDATING}``. Defaults to None.
         """
         self.init_fts()
+
+    def on_fit_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        """Before beginning training, ensure an optimizer configuration supported by
+        :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` is present.
+
+        Args:
+            trainer (:class:`~pytorch_lightning.trainer.trainer.Trainer`): The
+                :class:`~pytorch_lightning.trainer.trainer.Trainer` object
+            pl_module (:class:`~pytorch_lightning.core.lightning.LightningModule`): The
+                :class:`~pytorch_lightning.core.lightning.LightningModule` object
+
+        Raises:
+            MisconfigurationException: If more than 1 optimizers are configured indicates a configuration error
+        """
+        if len(trainer.optimizers) > 1:
+            raise MisconfigurationException("fts currently only supports a single-optimizer configuration")
+        super().on_fit_start(trainer, pl_module)
 
     def on_save_checkpoint(
         self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", checkpoint: Dict[str, Any]
@@ -371,23 +375,6 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
             # training incarnation's initial best
             if self.new_incarnation_mode:
                 self._fts_state._best_ckpt_depth = self._fts_state._fts_ckpt_metadata["current_ckpt_depth"]
-
-    def on_fit_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-        """Before beginning training, ensure an optimizer configuration supported by
-        :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` is present.
-
-        Args:
-            trainer (:class:`~pytorch_lightning.trainer.trainer.Trainer`): The
-                :class:`~pytorch_lightning.trainer.trainer.Trainer` object
-            pl_module (:class:`~pytorch_lightning.core.lightning.LightningModule`): The
-                :class:`~pytorch_lightning.core.lightning.LightningModule` object
-
-        Raises:
-            MisconfigurationException: If more than 1 optimizers are configured indicates a configuration error
-        """
-        if len(trainer.optimizers) > 1:
-            raise MisconfigurationException("fts currently only supports a single-optimizer configuration")
-        super().on_fit_start(trainer, pl_module)
 
     def should_transition(self, trainer: "pl.Trainer") -> bool:
         """Phase transition logic is contingent on whether we are composing

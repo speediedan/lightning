@@ -150,11 +150,9 @@ class FTSEarlyStopping(EarlyStopping, CallbackResolverMixin):
 
     Adds :attr:`es_phase_complete`, :attr:`final_phase` and :attr:`finetuningscheduler_callback` attributes and modifies
     :meth:`~pytorch_lightning.callbacks.early_stopping.EarlyStopping._evaluate_stopping_criteria` to enable multi-phase
-    behavior. Overrides :meth:`~pytorch_lightning.callbacks.early_stopping.EarlyStopping.on_init_start` hook to
-    ensure presence of :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback.
-    Usage of :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSEarlyStopping` is identical to
-    :class:`~pytorch_lightning.callbacks.early_stopping.EarlyStopping` except the former will evaluate the specified
-    early stopping criteria at every scheduled phase.
+    behavior. Usage of :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSEarlyStopping` is
+    identical to :class:`~pytorch_lightning.callbacks.early_stopping.EarlyStopping` except the former will evaluate the
+    specified early stopping criteria at every scheduled phase.
     :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSEarlyStopping` will automatically be
     used if a :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback is detected
     and :attr:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler.epoch_transitions_only` is
@@ -183,15 +181,14 @@ class FTSEarlyStopping(EarlyStopping, CallbackResolverMixin):
         self.final_phase = True
         self.finetuningscheduler_callback = None
 
-    def on_init_start(self, trainer: "pl.Trainer") -> None:
+    def on_before_accelerator_backend_setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
         """Ensure a :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` is provided
-        on trainer initialization.
+        before setting up the accelerator environment.
 
         Args:
             trainer (pl.Trainer): The :class:`~pytorch_lightning.trainer.trainer.Trainer` object.
         """
         self.connect_callback(trainer)
-        return super().on_init_start(trainer)
 
     def _evaluate_stopping_criteria(self, current: torch.Tensor) -> Tuple[bool, Optional[str]]:
         """Evaluate whether and why to stop the current training session.
@@ -285,8 +282,8 @@ class FTSCheckpoint(ModelCheckpoint, CallbackResolverMixin):
         self.best_ckpt_depth = 0
         self.finetuningscheduler_callback = None
 
-    def on_init_start(self, trainer: "pl.Trainer") -> None:
-        """When the trainer initialization begins, verify a valid callback configuration is present.
+    def on_before_accelerator_backend_setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
+        """Before setting up the accelerator environment, verify a valid callback configuration is present.
 
         Args:
             trainer: The :class:`~pytorch_lightning.trainer.trainer.Trainer` object
