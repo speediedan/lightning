@@ -442,7 +442,7 @@ class SchedulingMixin(ABC):
             )
         else:
             self.gen_implicit_schedule(self.pl_module.trainer.log_dir)
-            self.ft_schedule = self.pl_module.trainer.training_type_plugin.broadcast(self.ft_schedule)
+            self.ft_schedule = self.pl_module.trainer.strategy.broadcast(self.ft_schedule)
 
     def validate_ft_sched(self) -> Tuple[int, int]:
         """Ensure the explicitly specified finetuning schedule has a valid configuration.
@@ -647,6 +647,32 @@ class SchedulingMixin(ABC):
             raise MisconfigurationException(error_msg)
         return schedule_dict
 
+    def parse_phase_lr(self, depth: int) -> None:
+        """Parse/Define per-phase base learning rates.
+
+        Args:
+            depth (int): Schedule depth/phase to parse
+        Raises:
+            MisconfigurationException: If the specified per-phase learning rate is not convertable to a float.
+        """
+        if depth > 0:
+            self.ft_schedule[depth].setdefault("lr", self.base_max_lr)
+            try:
+                float(self.ft_schedule[depth]["lr"])
+            except ValueError:
+                raise MisconfigurationException(
+                    f"The lr '{self.ft_schedule[depth]['lr']}' in phase {depth} of the provided explicit schedule"
+                    "could not be cast to a float. Specified learning rates must be convertable to a float."
+                )
+        else:
+            if self.ft_schedule[depth].get("lr", None):
+                rank_zero_warn(
+                    f"A lr for finetuning phase 0 has been specified ({self.ft_schedule[0]['lr']}). This"
+                    " lr will be overridden by the lr specified via the initial optimizer configuration"
+                    " (typically in `configure_optimizers()`)."
+                )
+                del self.ft_schedule[depth]["lr"]
+
     def parse_phase(self, depth: int, named_params: KeysView) -> None:
         """Expand any regex expressions specified in an ft_schedule phase to fully qualified parameter names.
 
@@ -658,6 +684,7 @@ class SchedulingMixin(ABC):
             MisconfigurationException: If a specified parameter or regex does not resolve to at least one parameter.
         """
         self.ft_schedule[depth].setdefault("max_transition_epoch", -1)
+        self.parse_phase_lr(depth)
         orig_params = self.ft_schedule[depth].get("params", [])
         resolved_params = []
         for p in orig_params:

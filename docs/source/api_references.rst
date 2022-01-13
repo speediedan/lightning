@@ -75,6 +75,8 @@ Callbacks API
     lr_monitor
     model_checkpoint
     progress
+    finetuning_scheduler.fts
+    finetuning_scheduler.fts_supporters
 
 Loggers API
 -----------

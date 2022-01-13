@@ -153,6 +153,7 @@ def boring_ft_schedule(tmpdir_factory) -> Tuple[Path, Dict]:
     mod_sched_dict[0]["params"].extend(mod_sched_dict.pop(1)["params"])
     mod_sched_dict[0]["max_transition_epoch"] = 3
     mod_sched_dict[1] = mod_sched_dict.pop(2)
+    mod_sched_dict[1]["lr"] = 1e-06
     mod_sched_dict[2] = mod_sched_dict.pop(3)
     mod_sched_dict[2]["params"] = ["layer.0.*"]
     epoch_only_sched = deepcopy(mod_sched_dict)
@@ -163,7 +164,7 @@ def boring_ft_schedule(tmpdir_factory) -> Tuple[Path, Dict]:
 
 @pytest.fixture(scope="function")
 def invalid_schedules(tmpdir_factory) -> Dict:
-    """A fixture that generates a dictionary of invalid schedules testing."""
+    """A fixture that generates a dictionary of invalid schedules for testing."""
     valid_sched_start = """
 0:
   params:
@@ -179,16 +180,29 @@ def invalid_schedules(tmpdir_factory) -> Dict:
   params:
   - layer.1.bias
   - layer.1.weight"""
+    invalid_lr = """
+1:
+  params:
+  - layer.1.bias
+  - layer.1.weight
+  lr: not_a_number"""
+    lr_phase0 = """
+0:
+  params:
+  - layer.2.bias
+  - layer.2.weight
+  lr: 1e-03"""
     invalid_sched = {}
     invalid_sched["non_integer"] = valid_sched_start + non_integer_phase + valid_sched_end
     invalid_sched["non_contiguous"] = valid_sched_start + valid_sched_end
     invalid_sched["dup_key"] = valid_sched_start + valid_sched_start + non_integer_phase
+    invalid_sched["lr_phase0"] = lr_phase0
+    invalid_sched["invalid_lr"] = valid_sched_start + invalid_lr + valid_sched_end
     tmpdir = Path(tmpdir_factory.getbasetemp())
     for k, v in invalid_sched.items():
         ft_schedule_yaml = tmpdir / f"{k}.yaml"
         fs = get_filesystem(ft_schedule_yaml)
         with fs.open(ft_schedule_yaml, "w", newline="") as fp:
-            # with fs.open(ft_schedule_yaml, "w") as fp:
             fp.write(v)
         invalid_sched[k] = ft_schedule_yaml
     return invalid_sched
@@ -252,14 +266,14 @@ def test_gen_ft_schedule(tmpdir, model: "LightningModule", expected: Tuple):
 
 
 EXPECTED_EXPIMP_RESULTS = {
-    (True, -1): (5, 0, 2, 5, 8, 3, 3),
-    (False, -1): (7, 0, 3, 7, 8, 4, 4),
-    (True, 0): (4, 0, 0, 4, 4, 1, 1),
-    (False, 0): (4, 0, 0, 4, 2, 1, 1),
-    (True, 2): (5, 0, 2, 5, 8, 3, 3),
-    (False, 2): (6, 0, 2, 6, 6, 3, 3),
-    (True, 999): (5, 0, 2, 5, 8, 3, 3),
-    (False, 999): (7, 0, 3, 7, 8, 4, 4),
+    (True, -1): (5, 0, 2, 5, 8, 3, 3, (0.001, 1e-06, 1e-05)),
+    (False, -1): (7, 0, 3, 7, 8, 4, 4, (0.001, 1e-05, 1e-05, 1e-05)),
+    (True, 0): (4, 0, 0, 4, 4, 1, 1, (0.001,)),
+    (False, 0): (4, 0, 0, 4, 2, 1, 1, (0.001,)),
+    (True, 2): (5, 0, 2, 5, 8, 3, 3, (0.001, 1e-06, 1e-05)),
+    (False, 2): (6, 0, 2, 6, 6, 3, 3, (0.001, 1e-05, 1e-05)),
+    (True, 999): (5, 0, 2, 5, 8, 3, 3, (0.001, 1e-06, 1e-05)),
+    (False, 999): (7, 0, 3, 7, 8, 4, 4, (0.001, 1e-05, 1e-05, 1e-05)),
 }
 
 
@@ -287,6 +301,7 @@ def test_finetuningscheduling_explicit_implicit(tmpdir, boring_ft_schedule, expl
     assert len(finetuningscheduler_callback._fts_state._curr_thawed_params) == expected_state[4]
     assert len(finetuningscheduler_callback._internal_optimizer_metadata[0]) == expected_state[5]
     assert len(trainer.optimizers[0].param_groups) == expected_state[6]
+    assert tuple(pg["lr"] for pg in finetuningscheduler_callback._internal_optimizer_metadata[0]) == expected_state[7]
     for pg in range(expected_state[6]):
         assert trainer.optimizers[0].param_groups[pg]["params"][0].requires_grad
     still_frozen = [
@@ -361,12 +376,13 @@ EXPECTED_RESUME_RESULTS = {
     ("best", True, 1): (0, 0, 1),
     ("kth", True, 1): (1, 0, 1),
 }
+EXPECTED_WARNS = ["does not have many workers", "GPU available but", "`max_epochs` was not", "that ended mid-epoch"]
 
 
 @pytest.mark.parametrize("ckpt,", ["best", "kth"], ids=["best", "kth"])
 @pytest.mark.parametrize("inc_mode,", [False, True], ids=["defaultinc", "newinc"])
 @pytest.mark.parametrize("max_depth", [-1, 1], ids=["nomaxdepth", "maxdepth1"])
-def test_finetuningscheduler_callback_resume(tmpdir, ckpt_set, ckpt: str, inc_mode: bool, max_depth: int):
+def test_finetuningscheduler_callback_resume(tmpdir, ckpt_set, recwarn, ckpt: str, inc_mode: bool, max_depth: int):
     """Validate scheduled finetuning resumption functions as expected from both 'best' and 'kth'(not-best)
     checkpoints in both new_incarnation modes with and without max_depth specified."""
     resume_callbacks = [
@@ -385,6 +401,8 @@ def test_finetuningscheduler_callback_resume(tmpdir, ckpt_set, ckpt: str, inc_mo
     assert finetuningscheduler_callback.depth_remaining == expected_state[1]
     assert finetuningscheduler_callback.curr_depth == expected_state[2]
     assert finetuningscheduler_callback.curr_depth == finetuningscheduler_callback.max_depth
+    # ensure no unexpected warnings detected
+    assert all([any([re.compile(w).search(w_msg.message.args[0]) for w in EXPECTED_WARNS]) for w_msg in recwarn.list])
 
 
 EXPECTED_INTRAFIT_STATE = {
@@ -478,10 +496,12 @@ def test_finetuningscheduling_misconfiguration(tmpdir, callbacks: List[Callback]
     "schedule_key, expected",
     [
         ("dup_key", ("Duplicate key", None)),
+        ("lr_phase0", ("A lr for finetuning phase 0", None)),
+        ("invalid_lr", ("convertable to a float", None)),
         ("non_integer", ("non-integer keys", "layer.1.bias")),
         ("non_contiguous", ("non-contiguous or non-zero-indexed keys", "layer.0.bias")),
     ],
-    ids=["dup_key", "non_int", "non_contig"],
+    ids=["dup_key", "lr_phase0", "invalid_lr", "non_int", "non_contig"],
 )
 def test_finetuningscheduling_invalid_schedules(tmpdir, invalid_schedules, schedule_key: str, expected: Tuple):
     """Validate :class:`~pytorch_lightning.callbacks.finetuning_scheduler.FinetuningScheduler` misconfiguration
@@ -489,8 +509,12 @@ def test_finetuningscheduling_invalid_schedules(tmpdir, invalid_schedules, sched
     callbacks = [FinetuningScheduler(ft_schedule=invalid_schedules[schedule_key])]
     model = FinetuningSchedulerBoringModel()
     trainer = Trainer(default_root_dir=tmpdir, callbacks=callbacks)
-    with pytest.raises(MisconfigurationException, match=expected[0]):
-        trainer.fit(model)
+    if schedule_key == "lr_phase0":
+        with pytest.warns(UserWarning, match=expected[0]):
+            trainer.fit(model)
+    else:
+        with pytest.raises(MisconfigurationException, match=expected[0]):
+            trainer.fit(model)
     if expected[1]:
         corrected_path = tmpdir / "lightning_logs" / "version_0"
         corrected_schedule = corrected_path / f"{trainer.lightning_module.__class__.__name__}_ft_schedule_valid.yaml"

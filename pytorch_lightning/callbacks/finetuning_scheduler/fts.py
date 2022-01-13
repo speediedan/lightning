@@ -20,14 +20,15 @@ Used to implement multi-phase finetuned training schedules
 """
 import logging
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from torch.optim.optimizer import Optimizer
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import BaseFinetuning
 from pytorch_lightning.callbacks.finetuning_scheduler import CallbackDepMixin, FTSState, SchedulingMixin
-from pytorch_lightning.utilities import rank_zero_info
+from pytorch_lightning.trainer.states import TrainerFn
+from pytorch_lightning.utilities import _StrategyType, rank_zero_info
 from pytorch_lightning.utilities.distributed import rank_zero_debug
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 
@@ -90,9 +91,10 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
             max_depth: Maximum schedule depth to which the defined finetuning schedule should be executed. Specifying -1
                 or an integer > (number of defined schedule layers) will result in the entire finetuning schedule being
                 executed. Defaults to -1.
-            base_max_lr: The maximum learning rate to use for the parameter groups associated with each scheduled
-                finetuning depth. If overridden to ``None``, will be set to the ``lr`` of the first scheduled
-                finetuning depth scaled by 1e-1. Defaults to 1e-5.
+            base_max_lr: The default maximum learning rate to use for the parameter groups associated with each
+                scheduled finetuning depth if not explicitly specified in the finetuning schedule. If overridden to
+                ``None``, will be set to the ``lr`` of the first scheduled finetuning depth scaled by 1e-1. Defaults to
+                1e-5.
             restore_best: If ``True``, restore the best available (defined by the
                 :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSCheckpoint`) checkpoint
                 before finetuning depth transitions. Defaults to ``True``.
@@ -125,14 +127,6 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
         self.gen_ft_sched_only = gen_ft_sched_only
         self.epoch_transitions_only = epoch_transitions_only
         self.pl_module = None
-        self.supported_plugins = [
-            "DDPPlugin",
-            "DDPShardedPlugin",
-            "DDPSpawnPlugin",
-            "DDPSpawnShardedPlugin",
-            "DataParallelPlugin",
-            "SingleDevicePlugin",
-        ]
 
     @property
     def curr_depth(self) -> int:
@@ -151,6 +145,17 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
             int: The number of remaining finetuning training levels
         """
         return max(self.max_depth - self._fts_state._curr_depth, 0)
+
+    @staticmethod
+    def _supported_strategy_types() -> Sequence[_StrategyType]:
+        return (
+            _StrategyType.DP,
+            _StrategyType.DDP,
+            _StrategyType.DDP_SPAWN,
+            # _StrategyType.DEEPSPEED,  # support to be re-evaluated
+            _StrategyType.DDP_SHARDED,
+            _StrategyType.DDP_SHARDED_SPAWN,
+        )
 
     def freeze_before_training(self, pl_module: "pl.LightningModule"):
         """Freezes all model parameters so that parameter subsets can be subsequently thawed according to the
@@ -215,7 +220,7 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
                     module=self.pl_module,
                     optimizer=optimizer,
                     thawed_pl=next_tl["params"],
-                    lr=self.base_max_lr,
+                    lr=next_tl["lr"],
                     no_decay=getattr(self.pl_module, "no_decay", None),
                 )
 
@@ -223,32 +228,50 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
         """Restore the current best model checkpoint, according to
         :paramref:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSCheckpoint.best_model_path`"""
         # wait for all processes to be ready to restore ckpt before restoring
-        self.pl_module.trainer.training_type_plugin.barrier("setup_next_level")
+        self.pl_module.trainer.strategy.barrier("setup_next_level")
         # if restarting across multiple depths, need to ensure we're restoring optimizer state appropriately
         # by resetting optimizer groups and allowing state dict to be reset commensurate w/ ckpt state
         for opt_idx, optimizer in enumerate(self.pl_module.trainer.optimizers):
             optimizer.param_groups = BaseFinetuning._apply_mapping_to_param_groups(
                 self._fts_state._fts_ckpt_metadata["best_ckpt_pgs"][opt_idx], dict(self.pl_module.named_parameters())
             )
-        # we're restoring everything but callbacks, otherwise, checkpoint_connector.restore() could be used
-        # self.pl_module.trainer.checkpoint_connector.resume_checkpoint_path = (
-        #     self.pl_module.trainer.checkpoint_callback.best_model_path
-        # )
+        # we're restoring everything but callbacks and loops, otherwise, checkpoint_connector.restore() could be used
         checkpoint_path = self.pl_module.trainer.checkpoint_callback.best_model_path
         self.pl_module.trainer.checkpoint_connector.resume_start(checkpoint_path=checkpoint_path)
         self.pl_module.trainer.checkpoint_connector.restore_datamodule()
         self.pl_module.trainer.checkpoint_connector.restore_model()
-        self.pl_module.trainer.checkpoint_connector.restore_training_state()
+        # we need to override checkpoint_connector.restore_training_state() to bypass loop restoration
+        # if additional customizations are required, may make sense to subclass CheckpointConnector at some point
+        self._restore_training_state()
         self.pl_module.trainer.checkpoint_connector.resume_end()
+
+    def _restore_training_state(self) -> None:
+        """Restore training state without restoring loops from the pre-loaded checkpoint.
+
+        This includes the precision settings, optimizer states and learning rate scheduler states.
+        """
+        checkpoint_connector = self.pl_module.trainer.checkpoint_connector
+        if not checkpoint_connector._loaded_checkpoint:
+            return
+
+        # restore precision plugin (scaler etc.)
+        self.pl_module.trainer.precision_plugin.on_load_checkpoint(checkpoint_connector._loaded_checkpoint)
+
+        # checkpoint_connector.restore_training_state() would restore loops here
+        # self.restore_loops()
+
+        assert self.pl_module.trainer.state.fn is not None
+        if self.pl_module.trainer.state.fn == TrainerFn.FITTING:
+            # restore optimizers and schedulers state
+            checkpoint_connector.restore_optimizers_and_schedulers()
 
     def on_before_accelerator_backend_setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
         """Before setting up the accelerator environment:
-        Validate a compatible :class:`~pytorch_lightning.plugins.training_type.training_type_plugin.TrainingTypePlugin`
-        plugin is being used and ensure all
+        Validate a compatible :class:`~pytorch_lightning.strategies.Strategy` strategy is being used and ensure all
         :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback dependencies are
         met. If a valid configuration is present, then either dump the default finetuning schedule OR
         1. configure the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSEarlyStopping`
-            callback (if relevant)
+        callback (if relevant)
         2. initialize the :attr:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler._fts_state`
         3. freeze the target :class:`~pytorch_lightning.core.lightning.LightningModule` parameters
 
@@ -261,20 +284,20 @@ class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
         Raises:
             SystemExit: Gracefully exit before training if only generating and not executing a finetuning schedule.
             MisconfigurationException: If the
-                :class:`~pytorch_lightning.plugins.training_type.training_type_plugin.TrainingTypePlugin` plugin being
-                used is not currently compatible with the
-                :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback.
+                :class:`~pytorch_lightning.plugins.strategies.Strategy` strategy being used is not currently compatible
+                with the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback.
         """
         trainer.callbacks = self._configure_callback_deps(trainer)
-        if trainer.accelerator.training_type_plugin.__class__.__name__ not in self.supported_plugins:
+        supported = [t.lower() for t in self._supported_strategy_types()]
+        if trainer._strategy_type and trainer._strategy_type not in supported:
             raise MisconfigurationException(
                 "FTS is currently experimental and has not yet been adapted for the"
                 " specified distributed strategy please select from currently"
-                " compatible distributed strategies (e.g. strategy='dp|ddp|ddp_spawn|ddp_sharded|ddp_sharded_spawn')"
+                f" compatible distributed strategies ({supported})"
             )
         if self.gen_ft_sched_only:
             if trainer.is_global_zero:  # can't use @rank_zero_only decorator before accelerator setup
-                trainer.training_type_plugin.broadcast = lambda x: x
+                trainer.strategy.broadcast = lambda x: x
                 _ = self.gen_ft_schedule(pl_module, trainer.log_dir)
                 log.info("Bypassing training, generating finetuning schedule for review and subsequent finetuning")
                 raise SystemExit()
