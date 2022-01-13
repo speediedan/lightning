@@ -15,10 +15,10 @@ a host of benefits. It was created to meet the following objectives in roughly d
 * expedite and facilitate exploration of model tuning dynamics in research
 * allow marginal performance improvements of finetuned models
 
-Fundamentally, the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback enables multi-phase,
-scheduled finetuning of foundational models. Gradual unfreezing (i.e. thawing) can help maximize foundational model
-knowledge retention while allowing (typically upper layers of) the model to optimally adapt to new tasks during
-transfer learning [#]_ [#]_ [#]_ .
+Fundamentally, the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback enables
+multi-phase, scheduled finetuning of foundational models. Gradual unfreezing (i.e. thawing) can help maximize
+foundational model knowledge retention while allowing (typically upper layers of) the model to optimally adapt to new
+tasks during transfer learning [#]_ [#]_ [#]_ .
 
 :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` orchestrates the gradual unfreezing
 of models via a finetuning schedule that is either implicitly generated (the default) or explicitly provided by the user
@@ -158,11 +158,12 @@ and transitions will be exclusively epoch-driven.
 
 .. tip::
 
-    Use of regex expressions can be convenient for specifying more complex schedules:
+    Use of regex expressions can be convenient for specifying more complex schedules. Also, a per-phase
+    :paramref:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler.base_max_lr` can be specified:
 
     .. code-block:: yaml
       :linenos:
-      :emphasize-lines: 2, 7, 14
+      :emphasize-lines: 2, 7, 13, 15
 
        0:
          params: # the parameters for each phase definition can be fully specified
@@ -176,6 +177,7 @@ and transitions will be exclusively epoch-driven.
          params:
          - model.albert.encoder.*.ffn_output.*
          max_transition_epoch: 9
+         lr: 1e-06 # per-phase maximum learning rates can be specified
        3:
          params: # both approaches to parameter specification can be used in the same phase
          - model.albert.encoder.*.(ffn\.|attention|full*).*
