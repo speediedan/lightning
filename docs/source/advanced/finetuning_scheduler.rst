@@ -5,11 +5,12 @@
 
 .. _finetuning_scheduler:
 
-********************
-Finetuning Scheduler
-********************
-Training with the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback confers
-a host of benefits. It was created to meet the following objectives in roughly descending order of priority:
+Introduction to the Finetuning Scheduler
+========================================
+
+The :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback expedites and enhances
+foundational model experimentation with flexible finetuning schedules. Training with the
+:class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback confers a host of benefits:
 
 * maximize finetuning flexibility
 * expedite and facilitate exploration of model tuning dynamics in research
@@ -34,7 +35,7 @@ final phase of the schedule has its stopping criteria met. See
     and subject to change.
 
 Basic Usage
-=============
+***********
 If no finetuning schedule is user-provided,
 :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` will generate a
 :ref:`default schedule<advanced/finetuning_scheduler:The Default Finetuning Schedule>` and proceed to finetune
@@ -54,7 +55,7 @@ and :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTS
 .. _default schedule:
 
 The Default Finetuning Schedule
-===============================
+*******************************
 Schedule definition is facilitated via
 :meth:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.SchedulingMixin.gen_ft_schedule` which dumps
 a default finetuning schedule (by default using a naive, 2-parameters per level heuristic) which can be adjusted as
@@ -66,7 +67,7 @@ good baseline for subsquent explicit schedule refinement and will marginally out
 .. _specifying schedule:
 
 Specifying a Finetuning Schedule
-================================
+********************************
 
 To specify a finetuning schedule, it's convenient to first generate the default schedule and then alter the
 thawed/unfrozen parameter groups associated with each finetuning phase as desired. Finetuning phases are zero-indexed
@@ -146,7 +147,7 @@ and executed in ascending order.
     trainer = Trainer(callbacks=[FinetuningScheduler(ft_schedule="/path/to/my/schedule/my_schedule.yaml")])
 
 EarlyStopping and Epoch-Driven Phase Transition Criteria
-========================================================
+********************************************************
 
 By default, :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSEarlyStopping` and epoch-driven
 transition criteria are composed. If a ``max_transition_epoch`` is specified for a given phase, the next finetuning
@@ -192,7 +193,7 @@ see :ref:`scheduled finetuning for SuperGLUE<scheduled-finetuning-superglue>` be
 
 
 Resuming Scheduled Finetuning Training Sessions
-===============================================
+***********************************************
 
 Resumption of scheduled finetuning training is identical to the continuation of
 :ref:`other training sessions<common/trainer:trainer>` with the caveat that the provided checkpoint must
@@ -236,7 +237,7 @@ sessions.
     ``True`` as above will re-intialize the checkpoint state with a new best checkpoint at the resumption depth.
 
 Finetuning all the way down!
-============================
+****************************
 
 There are plenty of options for customizing
 :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler`'s behavior, see
@@ -262,7 +263,7 @@ configurations.
 .. _scheduled-finetuning-superglue:
 
 Example: Scheduled Finetuning For SuperGLUE
-===========================================
+*******************************************
 
 A demonstration of the scheduled finetuning callback
 :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` using the
@@ -314,10 +315,10 @@ Though beyond the scope of this documentation, it might be worth investigating t
 easily.
 
 In addition to the `tensorboard experiment summaries <https://tensorboard.dev/experiment/n7U8XhrzRbmvVzC4SQSpWw/>`_,
-full logs/schedules for all three scenarios are available
-`here <https://drive.google.com/file/d/1LrUcisRLHeJgh_BDOOD_GUBPp5iHAkoR/view?usp=sharing>`_ and the checkpoints produced
-in the scenarios `here <https://drive.google.com/file/d/1t7myBgcqcZ9ax_IT9QVk-vFH_l_o5UXB/view?usp=sharing>`_
-(caution, ~3.5GB).
+full logs/schedules for all three scenarios
+`are available <https://drive.google.com/file/d/1LrUcisRLHeJgh_BDOOD_GUBPp5iHAkoR/view?usp=sharing>`_
+as well as the `checkpoints produced <https://drive.google.com/file/d/1t7myBgcqcZ9ax_IT9QVk-vFH_l_o5UXB/view?usp=sharing>`_
+in the scenarios (caution, ~3.5GB).
 
 .. list-table::
    :widths: 25 25 25 25
@@ -368,7 +369,7 @@ behavior to maximizing performance.
    :width: 300
 
 Footnotes
-=========
+*********
 
 .. [#] `Howard, J., & Ruder, S. (2018) <https://arxiv.org/pdf/1801.06146.pdf>`_. Fine-tuned Language Models for Text
  Classification. ArXiv, abs/1801.06146.

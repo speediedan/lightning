@@ -15,7 +15,7 @@ r"""
 Finetuning Scheduler
 ^^^^^^^^^^^^^^^^^^^^
 
-Used to implement multi-phase finetuned training schedules
+Used to implement flexible finetuning training schedules
 
 """
 import logging
@@ -37,9 +37,9 @@ log = logging.getLogger(__name__)
 
 class FinetuningScheduler(BaseFinetuning, SchedulingMixin, CallbackDepMixin):
     r"""
-    This callback enables multi-phase, scheduled finetuning of foundational models. Gradual unfreezing/thawing can help
-    maximize foundational model knowledge retention while allowing (typically upper layers of) the model to optimally
-    adapt to new tasks during transfer learning.
+    This callback enables flexible, multi-phase, scheduled finetuning of foundational models. Gradual unfreezing/thawing
+    can help maximize foundational model knowledge retention while allowing (typically upper layers of) the model to
+    optimally adapt to new tasks during transfer learning.
     :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` orchestrates the gradual
     unfreezing of models via a finetuning schedule that is either implicitly generated (the default) or explicitly
     provided by the user (more computationally efficient).

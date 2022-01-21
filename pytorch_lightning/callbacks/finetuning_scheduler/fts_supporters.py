@@ -155,7 +155,7 @@ class FTSEarlyStopping(EarlyStopping, CallbackResolverMixin):
     specified early stopping criteria at every scheduled phase.
     :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSEarlyStopping` will automatically be
     used if a :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` callback is detected
-    and :attr:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler.epoch_transitions_only` is
+    and :paramref:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler.epoch_transitions_only` is
     ``False``
 
     .. warning:: :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters.FTSEarlyStopping` is in beta
@@ -172,7 +172,7 @@ class FTSEarlyStopping(EarlyStopping, CallbackResolverMixin):
                 Used to determine if the current phase's early stopping criteria have been met.
             final_phase (bool):
                 Used to indicate whether the current phase is the final scheduled phase.
-            finetuningscheduler_callback (Callback):
+            finetuningscheduler_callback (pytorch_lightning.callbacks.Callback):
                 Reference to the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler`
                 callback being used.
         """
@@ -267,7 +267,7 @@ class FTSCheckpoint(ModelCheckpoint, CallbackResolverMixin):
                 Used to track the depth of most recently saved checkpoint
             best_ckpt_depth (int):
                 Used to track the depth of the best known checkpoint (it may be from a different training depth)
-            finetuningscheduler_callback (Callback):
+            finetuningscheduler_callback (pytorch_lightning.callbacks.Callback):
                 Reference to the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler`
                 callback being used.
             save_on_train_epoch_end (bool): Whether to run checkpointing at the end of the training epoch. If this is
@@ -525,8 +525,8 @@ class SchedulingMixin(ABC):
 
     def validate_epoch_transitions(self) -> None:
         """If not composing :class:`~pytorch_lightning.callbacks.early_stopping.EarlyStopping` and epoch-driven
-        stopping criteria (the default behavior) but instead specifying exclusively epoch-driven transitions (:para
-        mref:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler.epoch_transitions_only` is
+        stopping criteria (the default behavior) but instead specifying exclusively epoch-driven transitions (
+        :paramref:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler.epoch_transitions_only` is
         ``True``), ensure the specified schedule specifies transitions for every phase.
 
         Raises:

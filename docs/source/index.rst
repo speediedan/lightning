@@ -3,9 +3,32 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-PyTorch Lightning
-=================
+Finetuning Scheduler
+====================
 
+If you're exploring using the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler`
+callback,
+:doc:`the Finetuning Scheduler introduction <advanced/finetuning_scheduler>`
+is a great place to start.
+
+`The notebook-based FinetuningScheduler tutorial <https://pytorch-lightning.readthedocs.io/en/latest/notebooks/lightning_examples/text-transformers.html>`_
+(link temporarily referencing text-transformers tutorial until finetuning-scheduler tutorial goes live) is also worth
+checking out.
+
+For those using the :ref:`LightningCLI<common/lightning_cli:LightningCLI>`, reviewing the
+:ref:`CLI-based FinetuningScheduler example<scheduled-finetuning-superglue>` may be useful.
+
+API documentation for the
+:class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` is contained in two modules:
+
+* :mod:`~pytorch_lightning.callbacks.finetuning_scheduler.fts`
+* :mod:`~pytorch_lightning.callbacks.finetuning_scheduler.fts_supporters`
+
+.. note::
+
+   Other than the :class:`~pytorch_lightning.callbacks.finetuning_scheduler.fts.FinetuningScheduler` documentation
+   listed above, the remainder of this documentation is a fork of the latest stable PyTorch Lightning documentation
+   provided here for conveience.
 
 .. tutoriallist::
 
